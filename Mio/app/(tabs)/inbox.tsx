@@ -7,13 +7,13 @@ import {
   TouchableOpacity, 
   Image, 
   ActivityIndicator,
-  SafeAreaView,
   TextInput
 } from 'react-native';
 import { router, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   collection, 
   query, 
@@ -604,14 +604,14 @@ export default function InboxScreen() {
   
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
+      <SafeAreaView style={styles.loadingContainer} edges={['top', 'bottom']}>
         <ActivityIndicator size="large" color={COLORS.secondary} />
       </SafeAreaView>
     );
   }
   
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Inbox</Text>
       </View>

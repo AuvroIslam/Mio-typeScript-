@@ -66,7 +66,7 @@ interface MatchContext {
   matches: MatchData[];
   isSearching: boolean;
   cooldownEndTime: Date | null;
-  searchMatches: () => Promise<void>;
+  searchMatches: () => Promise<number>;
   remainingTimeString: string;
   lastSearchTime: Date | null;
   isLoading: boolean;
@@ -569,11 +569,15 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
   }, [user, userFavorites, areUsersMatched, setCooldown, checkMatchCriteria, mergeMatches, addMatchToBothUsers]);
   
   const searchMatches = useCallback(async () => {
-    if (!user) return;
+    if (!user) return 0;
     
     setIsSearching(true);
     
     try {
+      // Get current match count to calculate new matches later
+      const initialMatchCount = matches.length;
+      console.log(`Initial match count: ${initialMatchCount}`);
+      
       // Set cooldown first to ensure it's always updated
       await setCooldown();
       
@@ -586,15 +590,22 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       // Find matches
       await findMatches();
       
+      // Calculate new matches - make sure we're using the updated match count
+      const newMatchCount = matches.length - initialMatchCount;
+      console.log(`After search - Total matches: ${matches.length}, New matches: ${newMatchCount}`);
+      
       // Trigger haptic feedback for success
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      return newMatchCount > 0 ? newMatchCount : 0;
     } catch (error) {
       // Trigger haptic feedback for error
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return 0;
     } finally {
       setIsSearching(false);
     }
-  }, [user, userFavorites, setCooldown, updateShowUsers, findMatches]);
+  }, [user, userFavorites, setCooldown, updateShowUsers, findMatches, matches.length]);
   
   // Memoize context value to prevent unnecessary re-renders
   const contextValue = useMemo(() => ({

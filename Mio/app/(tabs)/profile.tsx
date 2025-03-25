@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
-  SafeAreaView, 
+  SafeAreaView as RNSafeAreaView, 
   StyleSheet, 
   Image, 
   ScrollView, 
@@ -24,7 +24,7 @@ import { db } from '../../config/firebaseConfig';
 import ParallaxScrollView from '../../components/ParallaxScrollView';
 import { COLORS } from '../../constants/Colors';
 import { router } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import mainLogo from '../../assets/images/mainLogo.png';
 import icon from '../../assets/images/icon.png';
@@ -49,6 +49,8 @@ interface ProfileData {
   favoriteShows?: string[];
   favoriteMovie?: string;
   favoriteBand?: string;
+  favoriteAnime?: string;
+  favoriteKdrama?: string;
   profilePic: string;
   additionalPics?: string[];
   lastRemovalTime?: Timestamp;
@@ -389,10 +391,10 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <SafeAreaView style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.secondary} />
         <Text style={styles.loadingText}>Loading profile...</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
@@ -453,7 +455,7 @@ export default function ProfileScreen() {
   );
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
       <ScrollView 
@@ -613,7 +615,7 @@ export default function ProfileScreen() {
                       
                       <Text style={styles.favoriteTitle} numberOfLines={1}>
                         {show.title}
-        </Text>
+                      </Text>
                     </View>
                   );
                 })}
@@ -623,16 +625,16 @@ export default function ProfileScreen() {
                 <Ionicons name="heart-dislike-outline" size={40} color={COLORS.secondary} opacity={0.5} />
                 <Text style={styles.emptyFavoritesText}>
                   You haven't added any favorites yet
-        </Text>
+                </Text>
                 <Text style={styles.emptyFavoritesSubtext}>
                   Discover shows in the Home tab
-        </Text>
-      </View>
+                </Text>
+              </View>
             )}
           </View>
           
           {/* Other Favorites Card */}
-          {(profile.favoriteMovie || profile.favoriteBand) && (
+          {(profile.favoriteMovie || profile.favoriteBand || profile.favoriteAnime || profile.favoriteKdrama) && (
             <View style={styles.card}>
               <View style={styles.cardHeader}>
                 <Ionicons name="star-outline" size={22} color={COLORS.secondary} />
@@ -656,6 +658,26 @@ export default function ProfileScreen() {
                     <View style={styles.interestContent}>
                       <Text style={styles.interestLabel}>Favorite Music</Text>
                       <Text style={styles.interestValue}>{profile.favoriteBand}</Text>
+                    </View>
+                  </View>
+                )}
+                
+                {profile.favoriteAnime && (
+                  <View style={styles.interestItem}>
+                    <Ionicons name="tv-outline" size={24} color={COLORS.secondary} />
+                    <View style={styles.interestContent}>
+                      <Text style={styles.interestLabel}>Favorite Anime</Text>
+                      <Text style={styles.interestValue}>{profile.favoriteAnime}</Text>
+                    </View>
+                  </View>
+                )}
+                
+                {profile.favoriteKdrama && (
+                  <View style={styles.interestItem}>
+                    <Ionicons name="tv-outline" size={24} color={COLORS.secondary} />
+                    <View style={styles.interestContent}>
+                      <Text style={styles.interestLabel}>Favorite K-Drama</Text>
+                      <Text style={styles.interestValue}>{profile.favoriteKdrama}</Text>
                     </View>
                   </View>
                 )}
@@ -689,7 +711,7 @@ export default function ProfileScreen() {
           <View style={styles.buttonContainer}>
             <TouchableOpacity 
               style={styles.actionButton}
-              onPress={() => router.push('/profile')}
+              onPress={() => router.push('/(profile)/editProfile')}
             >
               <Ionicons name="create-outline" size={22} color="#FFF" />
               <Text style={styles.actionButtonText}>Edit Profile</Text>
@@ -761,7 +783,7 @@ export default function ProfileScreen() {
         type={feedbackModal.type}
         onClose={() => setFeedbackModal(prev => ({ ...prev, visible: false }))}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 

@@ -3,5 +3,8 @@
     "@react-native-async-storage/async-storage": "^1.23.1",
     "react-native-dropdown-picker": "^5.4.6",
     "react-native-svg": "^15.11.2"
+  },
+  "devDependencies": {
+    "eslint": "^9.23.0"
   }
 }

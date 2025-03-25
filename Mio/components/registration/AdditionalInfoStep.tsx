@@ -26,6 +26,8 @@ const AdditionalInfoStep = () => {
     favoriteShow: '',
     favoriteMovie: '',
     favoriteBand: '',
+    favoriteAnime: '',
+    favoriteKdrama: '',
   });
 
   // No validation needed since all fields are optional
@@ -58,6 +60,8 @@ const AdditionalInfoStep = () => {
             favoriteShows: [],  // Initialize empty array for favorite shows
             favoriteMovie: registrationData.favoriteMovie || '',
             favoriteBand: registrationData.favoriteBand || '',
+            favoriteAnime: registrationData.favoriteAnime || '',
+            favoriteKdrama: registrationData.favoriteKdrama || '',
           },
           profileCompleted: true,
           updatedAt: new Date(),
@@ -138,11 +142,19 @@ const AdditionalInfoStep = () => {
 
       <View style={styles.formSection}>
         <InputField
-          label="What is your favorite anime or K-drama? (optional)"
-          value={registrationData.favoriteShow}
-          onChangeText={(text) => updateField('favoriteShow', text)}
-          placeholder="Share your favorite show"
-          error={errors.favoriteShow}
+          label="What is your favorite anime? (optional)"
+          value={registrationData.favoriteAnime}
+          onChangeText={(text) => updateField('favoriteAnime', text)}
+          placeholder="Share your favorite anime"
+          error={errors.favoriteAnime}
+        />
+
+        <InputField
+          label="What is your favorite K-drama? (optional)"
+          value={registrationData.favoriteKdrama}
+          onChangeText={(text) => updateField('favoriteKdrama', text)}
+          placeholder="Share your favorite K-drama"
+          error={errors.favoriteKdrama}
         />
 
         <InputField

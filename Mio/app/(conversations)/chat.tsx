@@ -8,7 +8,6 @@ import {
   TouchableOpacity, 
   Image,
   ActivityIndicator,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform
 } from 'react-native';
@@ -16,6 +15,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   collection, 
   query, 
@@ -341,7 +341,7 @@ export default function ChatScreen() {
   // Loading state
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
+      <SafeAreaView style={styles.loadingContainer} edges={['top', 'bottom']}>
         <ActivityIndicator size="large" color={COLORS.secondary} />
         <Text style={styles.loadingText}>Loading conversation...</Text>
       </SafeAreaView>
@@ -349,7 +349,7 @@ export default function ChatScreen() {
   }
   
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Chat header */}
       <View style={styles.header}>
         <TouchableOpacity 

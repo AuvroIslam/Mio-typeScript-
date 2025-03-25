@@ -21,8 +21,9 @@ import { COLORS } from '../../constants/Colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import UserProfileScreen from '../(common)/userProfile';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.85;
 const CARD_HEIGHT = CARD_WIDTH * 1.3;
 
@@ -134,6 +135,9 @@ export default function MatchScreen() {
   const { userFavorites } = useFavorites();
   const [noFavorites, setNoFavorites] = useState(false);
   const [isFirstLoad, setIsFirstLoad] = useState(true);
+  const [newMatchCount, setNewMatchCount] = useState(0);
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [matchesBeforeSearch, setMatchesBeforeSearch] = useState(0);
   
   // Animation values
   const fadeAnim = useState(new Animated.Value(0))[0];
@@ -175,7 +179,13 @@ export default function MatchScreen() {
     fadeAnim.setValue(0);
     scaleAnim.setValue(0.9);
     
+    // Store the current match count to calculate new matches later
+    const currentMatchCount = matches.length;
+    setMatchesBeforeSearch(currentMatchCount);
+    console.log(`Storing match count before search: ${currentMatchCount}`);
+    
     try {
+      // Search for matches - the useEffect will handle showing notifications
       await searchMatches();
     } catch (error) {
       // Error already handled by the context
@@ -201,6 +211,28 @@ export default function MatchScreen() {
     }
   };
   
+  // Add a useEffect to update newMatchCount when matches change after search
+  useEffect(() => {
+    if (isSearching === false && matchesBeforeSearch > 0) {
+      // Calculate new matches after search completes
+      const newMatches = matches.length - matchesBeforeSearch;
+      console.log(`Match update detected - New matches calculated: ${newMatches}`);
+      
+      if (newMatches !== newMatchCount) {
+        setNewMatchCount(newMatches);
+        
+        // Show result modal if we have any result (positive or zero)
+        setShowResultModal(true);
+        setTimeout(() => {
+          setShowResultModal(false);
+        }, 5000);
+      }
+      
+      // Reset matchesBeforeSearch after processing
+      setMatchesBeforeSearch(0);
+    }
+  }, [matches, isSearching, matchesBeforeSearch, newMatchCount]);
+  
   // Render loading modal
   const renderLoadingModal = () => {
     return (
@@ -213,6 +245,45 @@ export default function MatchScreen() {
           <View style={styles.modalContent}>
             <ActivityIndicator size="large" color={COLORS.secondary} />
             <Text style={styles.modalText}>Searching for matches...</Text>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+  
+  // Render results modal
+  const renderResultsModal = () => {
+    return (
+      <Modal
+        visible={showResultModal}
+        transparent={true}
+        animationType="fade"
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Ionicons 
+              name={newMatchCount > 0 ? "heart" : "search"} 
+              size={50} 
+              color={newMatchCount > 0 ? COLORS.secondary : "#666"} 
+            />
+            <Text style={styles.modalTitle}>
+              {newMatchCount > 0 ? "Success!" : "Search Complete"}
+            </Text>
+            <Text style={styles.modalText}>
+              {newMatchCount > 0 
+                ? `Found ${newMatchCount} new ${newMatchCount === 1 ? 'match' : 'matches'}!` 
+                : "No new matches found this time."}
+            </Text>
+            {newMatchCount > 0 && (
+              <TouchableOpacity 
+                style={styles.viewMatchesButton}
+                onPress={() => {
+                  setShowResultModal(false);
+                }}
+              >
+                <Text style={styles.viewMatchesButtonText}>View Matches</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </Modal>
@@ -345,8 +416,9 @@ export default function MatchScreen() {
   };
   
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {renderLoadingModal()}
+      {renderResultsModal()}
       
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Match</Text>
@@ -374,7 +446,7 @@ export default function MatchScreen() {
       <View style={styles.contentContainer}>
         {renderMatchList()}
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -388,7 +460,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 10,
     paddingBottom: 10,
   },
   headerTitle: {
@@ -589,19 +661,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalContent: {
-    width: width * 0.8,
+    width: width * 0.85,
     backgroundColor: 'white',
     borderRadius: 20,
-    padding: 25,
+    padding: 30,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 2
+      height: 4
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8
   },
   modalText: {
     marginTop: 15,
@@ -609,5 +681,32 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.secondary,
     textAlign: 'center',
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: COLORS.secondary,
+    marginTop: 15,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  viewMatchesButton: {
+    backgroundColor: COLORS.secondary,
+    paddingVertical: 14,
+    paddingHorizontal: 30,
+    borderRadius: 30,
+    alignItems: 'center',
+    marginTop: 25,
+    width: '100%',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+  },
+  viewMatchesButtonText: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });

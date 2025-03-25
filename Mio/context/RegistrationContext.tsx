@@ -19,6 +19,8 @@ interface RegistrationData {
   favoriteShow: string;
   favoriteMovie: string;
   favoriteBand: string;
+  favoriteAnime: string;
+  favoriteKdrama: string;
 }
 
 type RegistrationContextType = {
@@ -45,6 +47,8 @@ const defaultRegistrationData: RegistrationData = {
   favoriteShow: '',
   favoriteMovie: '',
   favoriteBand: '',
+  favoriteAnime: '',
+  favoriteKdrama: '',
 };
 
 const RegistrationContext = createContext<RegistrationContextType | undefined>(undefined);

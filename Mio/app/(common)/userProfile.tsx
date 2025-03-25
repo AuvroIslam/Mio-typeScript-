@@ -5,7 +5,6 @@ import {
   StyleSheet, 
   Image, 
   ScrollView, 
-  SafeAreaView, 
   TouchableOpacity,
   ActivityIndicator,
   Platform,
@@ -19,6 +18,7 @@ import { COLORS } from '../../constants/Colors';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
 import { MatchLevel } from '../../context/MatchContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
@@ -34,6 +34,8 @@ interface ProfileData {
   favoriteShows?: string[];
   favoriteMovie?: string;
   favoriteBand?: string;
+  favoriteAnime?: string;
+  favoriteKdrama?: string;
 }
 
 interface CommonShow {
@@ -137,30 +139,34 @@ export default function UserProfileScreen() {
   
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.secondary} />
-        <Text style={styles.loadingText}>Loading profile...</Text>
-      </View>
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.secondary} />
+          <Text style={styles.loadingText}>Loading profile...</Text>
+        </View>
+      </SafeAreaView>
     );
   }
   
   if (error || !profile) {
     return (
-      <View style={styles.errorContainer}>
-        <Ionicons name="alert-circle-outline" size={60} color={COLORS.secondary} />
-        <Text style={styles.errorText}>{error || 'Profile not found'}</Text>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.backButtonText}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
+      <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle-outline" size={60} color={COLORS.secondary} />
+          <Text style={styles.errorText}>{error || 'Profile not found'}</Text>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
   
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']} mode="padding">
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       
       <ScrollView style={styles.scrollView}>
@@ -198,24 +204,24 @@ export default function UserProfileScreen() {
           </View>
           
           <View style={styles.profileHeader}>
-            <View style={styles.profileActionButtons}>
-              <TouchableOpacity 
-                style={styles.chatButton}
-                onPress={() => router.push({
-                  pathname: '/(conversations)/chat',
-                  params: { matchId: userId, fromInbox: 'false' }
-                })}
-              >
-                <Ionicons name="chatbubble" size={18} color="#FFF" />
-                <Text style={styles.chatButtonText}>Chat</Text>
-              </TouchableOpacity>
+            <View style={styles.profileNameContainer}>
+              <Text style={styles.profileName}>{profile.displayName}, {profile.age}</Text>
+              <View style={styles.locationContainer}>
+                <Ionicons name="location-outline" size={16} color="#FFF" />
+                <Text style={styles.locationText}>{profile.location}</Text>
+              </View>
             </View>
             
-            <Text style={styles.profileName}>{profile.displayName}, {profile.age}</Text>
-            <View style={styles.locationContainer}>
-              <Ionicons name="location-outline" size={16} color="#FFF" />
-              <Text style={styles.locationText}>{profile.location}</Text>
-            </View>
+            <TouchableOpacity 
+              style={styles.chatButton} className='mt-8'
+              onPress={() => router.push({
+                pathname: '/(conversations)/chat',
+                params: { matchId: userId, fromInbox: 'false' }
+              })}
+            >
+              <Ionicons name="chatbubble" size={18} color="#FFF" />
+              <Text style={styles.chatButtonText}>Chat</Text>
+            </TouchableOpacity>
             
             {profile.bio && (
               <Text style={styles.profileBio} numberOfLines={3}>
@@ -308,7 +314,7 @@ export default function UserProfileScreen() {
               <Text style={styles.sectionTitle}>Other Interests</Text>
             </View>
             
-            {(profile.favoriteMovie || profile.favoriteBand) ? (
+            {(profile.favoriteMovie || profile.favoriteBand || profile.favoriteAnime || profile.favoriteKdrama) ? (
               <View style={styles.interestsContainer}>
                 {profile.favoriteMovie && (
                   <View style={styles.interestItem}>
@@ -326,6 +332,26 @@ export default function UserProfileScreen() {
                     <View style={styles.interestTextContainer}>
                       <Text style={styles.interestLabel}>Favorite Music</Text>
                       <Text style={styles.interestValue}>{profile.favoriteBand}</Text>
+                    </View>
+                  </View>
+                )}
+                
+                {profile.favoriteAnime && (
+                  <View style={styles.interestItem}>
+                    <Ionicons name="tv-outline" size={20} color={COLORS.secondary} />
+                    <View style={styles.interestTextContainer}>
+                      <Text style={styles.interestLabel}>Favorite Anime</Text>
+                      <Text style={styles.interestValue}>{profile.favoriteAnime}</Text>
+                    </View>
+                  </View>
+                )}
+                
+                {profile.favoriteKdrama && (
+                  <View style={styles.interestItem}>
+                    <Ionicons name="tv-outline" size={20} color={COLORS.secondary} />
+                    <View style={styles.interestTextContainer}>
+                      <Text style={styles.interestLabel}>Favorite K-Drama</Text>
+                      <Text style={styles.interestValue}>{profile.favoriteKdrama}</Text>
                     </View>
                   </View>
                 )}
@@ -450,6 +476,10 @@ const styles = StyleSheet.create({
     bottom: 20,
     left: 20,
     right: 20,
+  },
+  profileNameContainer: {
+    flex: 1,
+    marginRight: 100,
   },
   profileName: {
     color: '#FFF',
@@ -593,24 +623,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingVertical: 16,
   },
-  profileActionButtons: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    width: '100%',
-    paddingRight: 16,
-    marginBottom: 8,
-  },
   chatButton: {
     backgroundColor: COLORS.secondary,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 20,
     flexDirection: 'row',
     alignItems: 'center',
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 5,
   },
   chatButtonText: {
     color: '#FFF',
     fontWeight: 'bold',
-    marginLeft: 4,
+    marginLeft: 6,
+    fontSize: 15,
   },
 }); 

@@ -26,8 +26,8 @@ const PhotoUploadStep = () => {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: 'images',
         allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8, // Reduced quality to keep file sizes smaller
+        aspect: [1, 1],
+        quality: 0.8,
       });
 
       console.log('Image picker result:', result.canceled ? 'Canceled' : 'Image selected');
