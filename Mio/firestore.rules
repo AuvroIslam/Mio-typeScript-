@@ -1,0 +1,71 @@
+// Firestore Rules
+// Copy these rules to your Firebase Firestore Security Rules in the Firebase Console
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow authenticated users to read and write their own data
+    match /users/{userId} {
+      // Allow any authenticated user to read profile data (for matching)
+      allow read: if request.auth != null;
+      
+      // Allow users to create their own document
+      allow create: if request.auth != null && request.auth.uid == userId;
+      
+      // First-time profile creation or general profile updates
+      allow update: if request.auth != null && (
+        request.auth.uid == userId || 
+        // Simplified rule for matches updates - allow any authenticated user to update matches
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['matches']))
+      );
+      
+      allow delete: if request.auth != null && request.auth.uid == userId;
+      
+      // Additional validation for favorite operations will be handled in the app code
+    }
+    
+    // Add rules for the registration process
+    match /registrationData/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Add rules for the showUsers collection
+    match /showUsers/{showId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // Add rules for public user data that doesn't need strict permissions
+    match /publicUserData/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Conversations collection rules
+    match /conversations/{conversationId} {
+      // Allow read if the user is a participant in the conversation
+      allow read: if request.auth != null && 
+                   resource.data.participants.hasAny([request.auth.uid]);
+      
+      // Allow create if the user is included as a participant
+      allow create: if request.auth != null && 
+                     request.resource.data.participants.hasAny([request.auth.uid]);
+      
+      // Allow update if the user is a participant
+      allow update: if request.auth != null && 
+                     resource.data.participants.hasAny([request.auth.uid]);
+      
+      // Allow access to messages subcollection
+      match /messages/{messageId} {
+        allow read: if request.auth != null && 
+                     get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants.hasAny([request.auth.uid]);
+        
+        allow create: if request.auth != null && 
+                       get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants.hasAny([request.auth.uid]);
+        
+        allow update: if request.auth != null && 
+                       get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants.hasAny([request.auth.uid]);
+      }
+    }
+  }
+} 
