@@ -27,7 +27,7 @@ const PhotoUploadStep = () => {
         mediaTypes: 'images',
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.8, // Reduced quality to keep file sizes smaller
       });
 
       console.log('Image picker result:', result.canceled ? 'Canceled' : 'Image selected');

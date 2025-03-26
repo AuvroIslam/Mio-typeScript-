@@ -6,13 +6,13 @@ import {
   TouchableOpacity, 
   KeyboardAvoidingView, 
   Platform,
-  ScrollView,
-  Alert
+  ScrollView
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CustomButton, InputField, Loader } from '../../components';
 import { useAuth } from '../../context/AuthContext';
+import Toast from 'react-native-toast-message';
 
 const SignIn = () => {
   const router = useRouter();
@@ -59,21 +59,67 @@ const SignIn = () => {
   };
 
   const handleSignIn = async () => {
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      // Show toast for validation errors
+      if (errors.email) {
+        Toast.show({
+          type: 'error',
+          text1: 'Invalid Email',
+          text2: errors.email,
+          position: 'bottom'
+        });
+        return;
+      }
+      if (errors.password) {
+        Toast.show({
+          type: 'error',
+          text1: 'Invalid Password',
+          text2: errors.password,
+          position: 'bottom'
+        });
+        return;
+      }
+      return;
+    }
     
     setProcessingAuth(true);
     try {
       await signIn(email, password);
       // Navigation will be handled in the useEffect when user state changes
     } catch (error: any) {
-      console.error('Sign in error:', error);
       // Provide more specific error messages based on error code
       if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        Alert.alert('Error', 'Invalid email or password');
+        Toast.show({
+          type: 'error',
+          text1: 'Invalid Credentials',
+          text2: 'Email or password is incorrect. Please try again.',
+          position: 'bottom',
+          visibilityTime: 4000
+        });
       } else if (error.code === 'auth/too-many-requests') {
-        Alert.alert('Error', 'Too many failed login attempts. Please try again later.');
+        Toast.show({
+          type: 'error',
+          text1: 'Too Many Attempts',
+          text2: 'Too many failed login attempts. Please try again later.',
+          position: 'bottom',
+          visibilityTime: 4000
+        });
+      } else if (error.code === 'auth/network-request-failed') {
+        Toast.show({
+          type: 'error',
+          text1: 'Network Error',
+          text2: 'Please check your internet connection and try again.',
+          position: 'bottom',
+          visibilityTime: 4000
+        });
       } else {
-        Alert.alert('Error', 'Failed to sign in. Please try again.');
+        Toast.show({
+          type: 'error',
+          text1: 'Sign In Failed',
+          text2: 'Could not sign in. Please try again later.',
+          position: 'bottom',
+          visibilityTime: 4000
+        });
       }
       setProcessingAuth(false);
     }

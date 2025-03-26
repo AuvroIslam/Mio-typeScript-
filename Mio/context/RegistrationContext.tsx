@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext } from 'react';
+import React, { createContext, useState, useContext, useCallback, useMemo } from 'react';
 
 interface RegistrationData {
   // Personal Info
@@ -65,34 +65,34 @@ export const RegistrationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [registrationData, setRegistrationData] = useState<RegistrationData>(defaultRegistrationData);
   const [currentStep, setCurrentStep] = useState(1);
 
-  const updateField = <K extends keyof RegistrationData>(field: K, value: RegistrationData[K]) => {
+  const updateField = useCallback(<K extends keyof RegistrationData>(field: K, value: RegistrationData[K]) => {
     setRegistrationData(prev => ({
       ...prev,
       [field]: value,
     }));
-  };
+  }, []);
 
-  const nextStep = () => {
+  const nextStep = useCallback(() => {
     setCurrentStep(prev => Math.min(prev + 1, 3));
-  };
+  }, []);
 
-  const prevStep = () => {
+  const prevStep = useCallback(() => {
     setCurrentStep(prev => Math.max(prev - 1, 1));
-  };
+  }, []);
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setRegistrationData(defaultRegistrationData);
     setCurrentStep(1);
-  };
+  }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     registrationData,
     currentStep,
     updateField,
     nextStep,
     prevStep,
     reset,
-  };
+  }), [registrationData, currentStep, updateField, nextStep, prevStep, reset]);
 
   return (
     <RegistrationContext.Provider value={value}>

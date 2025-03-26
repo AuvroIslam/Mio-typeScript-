@@ -2,6 +2,8 @@ import React from 'react';
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import Toast from 'react-native-toast-message';
+import { toastConfig } from '../../components';
 
 const AuthLayout = () => {
   return (
@@ -13,6 +15,7 @@ const AuthLayout = () => {
             contentStyle: { backgroundColor: '#FFCCE1' },
           }} 
         />
+        <Toast config={toastConfig} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

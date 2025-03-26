@@ -6,13 +6,13 @@ import {
   TouchableOpacity, 
   KeyboardAvoidingView, 
   Platform,
-  ScrollView,
-  Alert
+  ScrollView
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CustomButton, InputField, Loader } from '../../components';
 import { useAuth } from '../../context/AuthContext';
+import Toast from 'react-native-toast-message';
 
 const SignUp = () => {
   const router = useRouter();
@@ -77,26 +77,91 @@ const SignUp = () => {
   };
 
   const handleSignUp = async () => {
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      // Show toast for validation errors
+      if (errors.email) {
+        Toast.show({
+          type: 'error',
+          text1: 'Invalid Email',
+          text2: errors.email,
+          position: 'bottom'
+        });
+        return;
+      }
+      if (errors.password) {
+        Toast.show({
+          type: 'error',
+          text1: 'Invalid Password',
+          text2: errors.password,
+          position: 'bottom'
+        });
+        return;
+      }
+      if (errors.confirmPassword) {
+        Toast.show({
+          type: 'error',
+          text1: 'Password Error',
+          text2: errors.confirmPassword,
+          position: 'bottom'
+        });
+        return;
+      }
+      return;
+    }
 
     setProcessingAuth(true);
     try {
       await signUp(email, password);
+      Toast.show({
+        type: 'success',
+        text1: 'Success!',
+        text2: 'Account created successfully',
+        position: 'bottom',
+        visibilityTime: 2000
+      });
       setRegistrationReady(true);
       // Navigation will be handled in the useEffect when registrationReady is true
     } catch (error: any) {
-      console.error('Sign up error:', error);
-      
       if (error.code === 'auth/email-already-in-use') {
-        Alert.alert('Error', 'This email is already in use. Please try a different email or sign in.');
+        Toast.show({
+          type: 'error',
+          text1: 'Email In Use',
+          text2: 'This email is already in use. Please try a different email or sign in.',
+          position: 'bottom',
+          visibilityTime: 4000
+        });
       } else if (error.code === 'auth/invalid-email') {
-        Alert.alert('Error', 'The email address is not valid.');
+        Toast.show({
+          type: 'error',
+          text1: 'Invalid Email',
+          text2: 'The email address is not valid.',
+          position: 'bottom',
+          visibilityTime: 4000
+        });
       } else if (error.code === 'auth/weak-password') {
-        Alert.alert('Error', 'The password is too weak. Please choose a stronger password.');
+        Toast.show({
+          type: 'error',
+          text1: 'Weak Password',
+          text2: 'The password is too weak. Please choose a stronger password.',
+          position: 'bottom',
+          visibilityTime: 4000
+        });
       } else if (error.code === 'auth/network-request-failed') {
-        Alert.alert('Error', 'Network error. Please check your internet connection and try again.');
+        Toast.show({
+          type: 'error',
+          text1: 'Network Error',
+          text2: 'Please check your internet connection and try again.',
+          position: 'bottom',
+          visibilityTime: 4000
+        });
       } else {
-        Alert.alert('Error', 'Failed to create account. Please try again later.');
+        Toast.show({
+          type: 'error',
+          text1: 'Sign Up Failed',
+          text2: 'Failed to create account. Please try again later.',
+          position: 'bottom',
+          visibilityTime: 4000
+        });
       }
       setProcessingAuth(false);
     }

@@ -11,8 +11,9 @@ import { AuthProvider } from '../context/AuthContext';
 import { FavoritesProvider } from '../context/FavoritesContext';
 import { RegistrationProvider } from '../context/RegistrationContext';
 import { MatchContextProvider } from '../context/MatchContext';
-
-import { useColorScheme } from '@/hooks/useColorScheme';
+import Toast from 'react-native-toast-message';
+import { toastConfig } from '../components';
+import { useColorScheme } from '../hooks/useColorScheme';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -55,6 +56,7 @@ const RootLayout = () => {
               <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
                 <Slot />
                 <StatusBar style="auto" />
+                <Toast config={toastConfig} />
               </ThemeProvider>
             </MatchContextProvider>
           </FavoritesProvider>

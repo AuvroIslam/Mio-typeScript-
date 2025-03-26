@@ -58,10 +58,8 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // Initial fetch and cooldown timer setup
   useEffect(() => {
     if (user) {
-      console.log(`FavoritesContext: User authenticated (${user.uid}), fetching favorites`);
       refreshUserFavorites();
     } else {
-      console.log('FavoritesContext: No user authenticated, resetting state');
       resetState();
     }
   }, [user]);
@@ -99,8 +97,6 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const refreshUserFavorites = async () => {
     if (!user) return;
     
-    console.log(`FavoritesContext: Refreshing favorites for user ${user.uid}`);
-    
     try {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists() && userDoc.data().profile) {
@@ -110,8 +106,6 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const updatedFavorites = {
           shows: profile.favoriteShows || []
         };
-        
-        console.log(`FavoritesContext: Loaded favorites - Shows: ${updatedFavorites.shows.length}`);
         
         setUserFavorites(updatedFavorites);
         
@@ -146,15 +140,13 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
                 'profile.weeklyRemovals': 0
               });
             } catch (error) {
-              console.error('Error updating profile after cooldown:', error);
+              // Silent error handling
             }
           }
         }
-      } else {
-        console.log('FavoritesContext: User document exists but no profile data found');
       }
     } catch (error) {
-      console.error('FavoritesContext: Error fetching user favorites:', error);
+      // Silent error handling
     }
   };
 
@@ -214,7 +206,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         });
       }
     } catch (error) {
-      console.error(`Error updating showUsers for ${showId}:`, error);
+      // Silent error handling
     }
   };
 
@@ -223,7 +215,6 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     
     const showId = show.id.toString();
     
-    console.log(`FavoritesContext: Adding ${show.title} (ID: ${show.id}) to favorites`);
     setIsAddingToFavorites(true);
     
     try {
@@ -235,7 +226,6 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         shows: [...userFavorites.shows, showId]
       };
       setUserFavorites(updatedFavorites);
-      console.log(`FavoritesContext: Updated local state immediately, now ${updatedFavorites.shows.length} favorites`);
       
       // Then update Firestore
       await updateDoc(userRef, {
@@ -245,23 +235,18 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Update showUsers collection
       await updateShowUsers(showId, true);
       
-      console.log(`FavoritesContext: Successfully added to Firestore`);
-      
       // Trigger haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
       // Call success callback after both local and remote updates are complete
       if (onSuccess) setTimeout(() => onSuccess(), 0);
     } catch (error) {
-      console.error('FavoritesContext: Error adding to favorites:', error);
-      
       // Rollback local state on error
       const rollbackFavorites = {
         ...userFavorites,
         shows: userFavorites.shows.filter(id => id !== showId)
       };
       setUserFavorites(rollbackFavorites);
-      console.log(`FavoritesContext: Rolled back local state due to error`);
       
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       if (onError) setTimeout(() => onError(), 0);
@@ -275,7 +260,6 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     
     const showId = show.id.toString();
     
-    console.log(`FavoritesContext: Removing ${show.title} (ID: ${show.id}) from favorites`);
     setIsRemovingFavorite(true);
     
     try {
@@ -288,8 +272,6 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const needsCooldown = newRemovalCount >= MAX_WEEKLY_REMOVALS;
       const now = new Date();
       
-      console.log(`FavoritesContext: Current removal count: ${removalCount}, new count: ${newRemovalCount}, needs cooldown: ${needsCooldown}`);
-      
       // First update local state immediately for better UI responsiveness
       const updatedFavorites = {
         ...userFavorites,
@@ -299,15 +281,12 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       // Update removal count and cooldown in local state
       if (needsCooldown) {
-        console.log(`FavoritesContext: Setting cooldown timer for ${COOLDOWN_MINUTES} minutes`);
         setRemovalCount(0);
         setCooldownTimer(COOLDOWN_MINUTES * 60);
         setLastRemovalTime(now);
       } else {
         setRemovalCount(newRemovalCount);
       }
-      
-      console.log(`FavoritesContext: Updated local state immediately, now ${updatedFavorites.shows.length} favorites`);
       
       // Then update Firestore
       await updateDoc(userRef, {
@@ -319,19 +298,14 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Update showUsers collection
       await updateShowUsers(showId, false);
       
-      console.log(`FavoritesContext: Successfully removed from Firestore`);
-      
       // Trigger haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
       // Call success callback after both local and remote updates are complete
       if (onSuccess) setTimeout(() => onSuccess(), 0);
     } catch (error) {
-      console.error('FavoritesContext: Error removing from favorites:', error);
-      
       // Rollback local state on error
       refreshUserFavorites(); // Reload from Firestore to ensure consistency
-      console.log(`FavoritesContext: Rolled back local state due to error by refreshing from Firestore`);
       
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       if (onError) setTimeout(() => onError(), 0);

@@ -7,13 +7,15 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Instead, we store image URLs from Cloudinary in Firestore
 
 // Your web app's Firebase configuration
+// For production, these values should be set in environment variables
+// or using a secure key management solution
 const firebaseConfig = {
-  apiKey: "AIzaSyD4ZIhFU1zMrWLVjBIbxzg6QwPlBqgDa4E",
-  authDomain: "mioapp-9a5bd.firebaseapp.com",
-  projectId: "mioapp-9a5bd",
-  storageBucket: "mioapp-9a5bd.appspot.com",
-  messagingSenderId: "502497349839",
-  appId: "1:502497349839:web:f4d6dc6a0d2345afbf27ba"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "AIzaSyD4ZIhFU1zMrWLVjBIbxzg6QwPlBqgDa4E",
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "mioapp-9a5bd.firebaseapp.com",
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "mioapp-9a5bd",
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || "mioapp-9a5bd.appspot.com",
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "502497349839",
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || "1:502497349839:web:f4d6dc6a0d2345afbf27ba"
 };
 
 // Initialize Firebase

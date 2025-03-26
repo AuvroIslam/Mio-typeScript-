@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -62,19 +62,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
-      console.error('Sign in error:', error);
       throw error;
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
     try {
       // First create the authentication user
@@ -88,44 +87,41 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           profileCompleted: false
         });
       } catch (firestoreError) {
-        console.error('Firestore error during sign up:', firestoreError);
         // Even if Firestore fails, the user is still authenticated
         // This ensures they can at least use the app even if profile data isn't stored yet
       }
     } catch (error) {
-      console.error('Sign up error:', error);
       throw error;
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     setIsLoading(true);
     try {
       await signOut(auth);
     } catch (error) {
-      console.error('Logout error:', error);
       throw error;
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const setUserHasProfile = (hasProfile: boolean) => {
+  const setUserHasProfile = useCallback((hasProfile: boolean) => {
     if (user) {
       setUser({ ...user, hasProfile });
     }
-  };
+  }, [user]);
 
-  const value = {
+  const value = useMemo(() => ({
     user,
     isLoading,
     signIn,
     signUp,
     logout,
     setUserHasProfile
-  };
+  }), [user, isLoading, signIn, signUp, logout, setUserHasProfile]);
 
   return (
     <AuthContext.Provider value={value}>

@@ -26,9 +26,6 @@ import * as Haptics from 'expo-haptics';
 // Constants
 const MATCH_THRESHOLD = 3;
 const SUPER_MATCH_THRESHOLD = 7;
-const INITIAL_COOLDOWN = 60; // 1 minute in seconds
-const SECOND_COOLDOWN = 120; // 2 minutes in seconds
-const THIRD_COOLDOWN = 300; // 5 minutes in seconds
 
 // Define cooldown constants
 const COOLDOWN_MINUTES = {
@@ -307,7 +304,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       
       return true;
     } catch (error) {
-      console.error("Error adding match to both users:", error);
       return false;
     }
   }, []);
@@ -511,9 +507,9 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
           const matchUserFavorites = matchUserProfile.favoriteShows || [];
           const commonShowIds = showIds.filter((id: string) => matchUserFavorites.includes(id));
           
-          if (commonShowIds.length >= 3) {
+          if (commonShowIds.length >= MATCH_THRESHOLD) {
             // Determine match level
-            let matchLevel: MatchLevel = commonShowIds.length >= 7 ? 'superMatch' : 'match';
+            let matchLevel: MatchLevel = commonShowIds.length >= SUPER_MATCH_THRESHOLD ? 'superMatch' : 'match';
             
             // Create match object for current user
             const matchData: MatchData = {
@@ -543,7 +539,7 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
             
             newMatchesData.push(matchData);
             
-            // Add match to both users - This is the critical part!
+            // Add match to both users
             await addMatchToBothUsers(user.uid, userId, matchData, otherUserMatchData);
           }
         }
@@ -562,7 +558,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       
     } catch (error) {
       setError('An error occurred while finding matches.');
-      console.error('Find matches error:', error);
     } finally {
       setIsSearching(false);
     }
@@ -576,7 +571,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
     try {
       // Get current match count to calculate new matches later
       const initialMatchCount = matches.length;
-      console.log(`Initial match count: ${initialMatchCount}`);
       
       // Set cooldown first to ensure it's always updated
       await setCooldown();
@@ -592,7 +586,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       
       // Calculate new matches - make sure we're using the updated match count
       const newMatchCount = matches.length - initialMatchCount;
-      console.log(`After search - Total matches: ${matches.length}, New matches: ${newMatchCount}`);
       
       // Trigger haptic feedback for success
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
