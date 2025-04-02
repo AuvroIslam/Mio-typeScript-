@@ -26,14 +26,23 @@ export const Colors = {
 };
 
 export const COLORS = {
-  primary: '#FFCCE1',
-  secondary: '#8174A0',
+  // primary: '#FFCCE1',
+  primary: '#b17a7d',
+  // secondary: '#8174A0',
+  secondary: '#6d1315',
   tertiary: '#F2F9FF',
   quaternary: '#FFF5D7',
+  maroon: '#b17a7d',
+  darkMaroon: '#924a4d',
+  darkestMaroon: '#6d1315',
   white: '#FFFFFF',
   black: '#000000',
   error: '#FF5555',
   success: '#55DD55',
+  gradient: {
+    darkPink: '#f3d8df',
+    lightPink: '#faebee'
+  },
   text: {
     primary: '#333333',
     secondary: '#666666',

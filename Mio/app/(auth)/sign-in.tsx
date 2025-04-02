@@ -1,255 +1,411 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  KeyboardAvoidingView, 
-  Platform,
-  ScrollView
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    Modal,
+    TextInput,
+    ImageBackground,
+    ActivityIndicator // Keep ActivityIndicator if used elsewhere, not needed for this specific change
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+// Assuming Loader handles its own visibility based on isLoading prop
 import { CustomButton, InputField, Loader } from '../../components';
 import { useAuth } from '../../context/AuthContext';
+// Keep Toast for other messages if needed, but we won't use it for login failure here
 import Toast from 'react-native-toast-message';
+import { COLORS } from '../../constants/Colors';
+import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SignIn = () => {
-  const router = useRouter();
-  const { signIn, isLoading, user } = useAuth();
-  
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [errors, setErrors] = useState({ email: '', password: '' });
-  const [processingAuth, setProcessingAuth] = useState(false);
+    const router = useRouter();
+    // Destructure isLoading correctly from useAuth if it's provided for general loading
+    const { signIn, isLoading: authContextLoading, user, resetPassword } = useAuth();
 
-  // Check if user is already authenticated and redirect if needed
-  useEffect(() => {
-    if (user) {
-      // Use setTimeout to ensure navigation happens after layout is fully mounted
-      const timer = setTimeout(() => {
-        router.replace("/(tabs)/home");
-      }, 0);
-      return () => clearTimeout(timer);
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [validationErrors, setValidationErrors] = useState({ email: '', password: '' });
+    // --- New State for Login Error ---
+    const [signInError, setSignInError] = useState<string | null>(null);
+    // --- Renamed state for clarity ---
+    const [isProcessingSignIn, setIsProcessingSignIn] = useState(false);
+
+    const [forgotPasswordModalVisible, setForgotPasswordModalVisible] = useState(false);
+    const [resetEmail, setResetEmail] = useState('');
+    const [resetEmailError, setResetEmailError] = useState('');
+    const [processingReset, setProcessingReset] = useState(false);
+
+    // --- Effect for redirecting logged-in user (keep as is) ---
+    useEffect(() => {
+        if (user) {
+            const timer = setTimeout(() => {
+                if (!user.emailVerified) {
+                    router.replace("/(auth)/email-verification");
+                } else if (user.hasProfile) {
+                    router.replace("/(tabs)/home");
+                } else {
+                    router.replace("/(registration)/registration");
+                }
+            }, 0);
+            return () => clearTimeout(timer);
+        }
+    }, [user, router]);
+
+    // --- Clear sign-in error when inputs change ---
+    useEffect(() => {
+       if (signInError) {
+           setSignInError(null);
+       }
+    }, [email, password]);
+
+    // Make sure we stay on the sign-in page when there's an error
+    useEffect(() => {
+        if (signInError) {
+            // If there's an error, stay on the sign-in page
+            const preventRedirect = () => {
+                if (router.canGoBack()) {
+                    // If user tries to navigate away with errors present, force back to sign-in
+                    router.replace('/sign-in');
+                }
+            };
+            
+            preventRedirect();
+            
+            // Block any navigation attempts for a short period to ensure we stay on sign-in page
+            const blockTimer = setTimeout(() => {
+                router.replace('/sign-in');
+            }, 250);
+            
+            return () => clearTimeout(blockTimer);
+        }
+    }, [signInError, router]);
+
+    const validateForm = () => {
+        let valid = true;
+        const newErrors = { email: '', password: '' };
+        setSignInError(null); // Clear previous login errors on new attempt
+
+        if (!email) {
+            newErrors.email = 'Email is required';
+            valid = false;
+        } else if (!/\S+@\S+\.\S+/.test(email)) {
+            newErrors.email = 'Email is invalid';
+            valid = false;
+        }
+
+        if (!password) {
+            newErrors.password = 'Password is required';
+            valid = false;
+        }
+        // Keep password length validation if desired
+        // else if (password.length < 6) {
+        //   newErrors.password = 'Password must be at least 6 characters';
+        //   valid = false;
+        // }
+
+        setValidationErrors(newErrors);
+        return valid;
+    };
+
+    const handleSignIn = async () => {
+        if (!validateForm()) {
+             // Show validation errors inline (already handled by InputField `error` prop)
+             // Optionally, focus the first invalid field
+            return;
+        }
+
+        setIsProcessingSignIn(true);
+        setSignInError(null); // Clear previous errors
+
+        try {
+            await signIn(email, password);
+            // Success: Navigation is handled by the useEffect hook watching the `user` state
+            // You could show a success toast here if you still want one for successful login
+            Toast.show({
+                type: 'success',
+                text1: 'Welcome back!',
+                position: 'bottom',
+                visibilityTime: 2000
+            });
+        } catch (error) {
+            // Handle auth errors
+            let errorMessage = 'An unknown error occurred';
+            
+            // Find specific Firebase Auth error message
+            // @ts-ignore - We know error might have message
+            if (error.message) {
+                // @ts-ignore
+                if (error.message.includes('user-not-found') || 
+                    // @ts-ignore
+                    error.message.includes('wrong-password') ||
+                    // @ts-ignore
+                    error.message.includes('invalid-credential')) {
+                    errorMessage = 'Invalid email or password';
+                // @ts-ignore
+                } else if (error.message.includes('too-many-requests')) {
+                    errorMessage = 'Too many login attempts. Please try again later.';
+                // @ts-ignore
+                } else if (error.message.includes('network-request-failed')) {
+                    errorMessage = 'Network error. Please check your connection.';
+                }
+            }
+            
+            setSignInError(errorMessage);
+            
+            // Show floating toast for error
+            Toast.show({
+                type: 'error',
+                text1: 'Sign In Failed',
+                text2: errorMessage,
+                position: 'bottom',
+                visibilityTime: 3000
+            });
+        } finally {
+            setIsProcessingSignIn(false);
+        }
+    };
+
+    // --- Handle Forgot Password (keep as is) ---
+    const handleForgotPassword = async () => {
+        if (!resetEmail) {
+            setResetEmailError('Please enter your email address.');
+            return;
+        } else if (!/\S+@\S+\.\S+/.test(resetEmail)) {
+            setResetEmailError('Please enter a valid email address.');
+            return;
+        }
+        setResetEmailError('');
+        setProcessingReset(true);
+        try {
+            await resetPassword(resetEmail);
+            setForgotPasswordModalVisible(false);
+            setResetEmail('');
+            Toast.show({ // Keep Toast for this feedback
+                type: 'success',
+                text1: 'Password Reset Email Sent',
+                text2: 'Check your email to reset your password.',
+                position: 'bottom',
+                visibilityTime: 5000
+            });
+        } catch (error: any) {
+            let errorMessage = 'Failed to send password reset email.';
+             if (error.code === 'auth/user-not-found') {
+               errorMessage = 'No user found with this email address.';
+             } // ... other error checks
+            Toast.show({ // Keep Toast for this feedback
+                type: 'error',
+                text1: 'Password Reset Failed',
+                text2: errorMessage,
+                position: 'bottom',
+                visibilityTime: 4000
+            });
+        } finally {
+            setProcessingReset(false);
+        }
+    };
+
+    // Use the specific processing state for the loader
+    if (authContextLoading) {
+       // Use a full-screen loader if the context is initially loading the user
+       return <Loader isLoading={true} />;
     }
-  }, [user, router]);
 
-  const validateForm = () => {
-    let valid = true;
-    const newErrors = { email: '', password: '' };
+    return (
+        <ImageBackground 
+            source={require('../../assets/images/signinBackground.jpg')}
+            style={styles.backgroundImage}
+        >
+            <SafeAreaView style={styles.container}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <ScrollView contentContainerStyle={styles.scrollView}>
+                        <View style={styles.logoContainer}>
+                            
+                        </View>
 
-    if (!email) {
-      newErrors.email = 'Email is required';
-      valid = false;
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Email is invalid';
-      valid = false;
-    }
+                        <View style={styles.formContainer}>
+                            <Text style={styles.title}>Welcome Back</Text>
+                            <Text style={styles.subtitle}>Sign in to continue</Text>
 
-    if (!password) {
-      newErrors.password = 'Password is required';
-      valid = false;
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
-      valid = false;
-    }
+                            <InputField
+                                label="Email"
+                                value={email}
+                                // Clear specific sign-in error when typing
+                                onChangeText={(text) => {setEmail(text); setSignInError(null);}}
+                                placeholder="Enter your email"
+                                keyboardType="email-address"
+                                error={validationErrors.email} // Show validation errors
+                            />
 
-    setErrors(newErrors);
-    return valid;
-  };
+                            <InputField
+                                label="Password"
+                                value={password}
+                                // Clear specific sign-in error when typing
+                                onChangeText={(text) => {setPassword(text); setSignInError(null);}}
+                                placeholder="Enter your password"
+                                secureTextEntry
+                                error={validationErrors.password} // Show validation errors
+                            />
 
-  const handleSignIn = async () => {
-    if (!validateForm()) {
-      // Show toast for validation errors
-      if (errors.email) {
-        Toast.show({
-          type: 'error',
-          text1: 'Invalid Email',
-          text2: errors.email,
-          position: 'bottom'
-        });
-        return;
-      }
-      if (errors.password) {
-        Toast.show({
-          type: 'error',
-          text1: 'Invalid Password',
-          text2: errors.password,
-          position: 'bottom'
-        });
-        return;
-      }
-      return;
-    }
-    
-    setProcessingAuth(true);
-    try {
-      await signIn(email, password);
-      // Navigation will be handled in the useEffect when user state changes
-    } catch (error: any) {
-      // Provide more specific error messages based on error code
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        Toast.show({
-          type: 'error',
-          text1: 'Invalid Credentials',
-          text2: 'Email or password is incorrect. Please try again.',
-          position: 'bottom',
-          visibilityTime: 4000
-        });
-      } else if (error.code === 'auth/too-many-requests') {
-        Toast.show({
-          type: 'error',
-          text1: 'Too Many Attempts',
-          text2: 'Too many failed login attempts. Please try again later.',
-          position: 'bottom',
-          visibilityTime: 4000
-        });
-      } else if (error.code === 'auth/network-request-failed') {
-        Toast.show({
-          type: 'error',
-          text1: 'Network Error',
-          text2: 'Please check your internet connection and try again.',
-          position: 'bottom',
-          visibilityTime: 4000
-        });
-      } else {
-        Toast.show({
-          type: 'error',
-          text1: 'Sign In Failed',
-          text2: 'Could not sign in. Please try again later.',
-          position: 'bottom',
-          visibilityTime: 4000
-        });
-      }
-      setProcessingAuth(false);
-    }
-  };
+                             {/* --- Display Sign-In Error Message --- */}
+                             {signInError && (
+                                <View style={styles.errorContainer}>
+                                  <Text style={styles.signInErrorText}>{signInError}</Text>
+                                </View>
+                             )}
 
-  if (isLoading || processingAuth) {
-    return <Loader isLoading={true} />;
-  }
+                            <View style={styles.forgotPasswordContainer}>
+                                <TouchableOpacity onPress={() => setForgotPasswordModalVisible(true)}>
+                                    <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                                </TouchableOpacity>
+                            </View>
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-        <ScrollView contentContainerStyle={styles.scrollView}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.logo}>Mio</Text>
-          </View>
+                            <CustomButton
+                                title="Sign In"
+                                handlePress={handleSignIn}
+                                containerStyles="mt-4 self-center"
+                                // Use the specific processing state for the button
+                                isLoading={isProcessingSignIn}
+                            />
 
-          <View style={styles.formContainer}>
-            <Text style={styles.title}>Welcome Back</Text>
-            <Text style={styles.subtitle}>Sign in to continue</Text>
+                            <View style={styles.signupContainer}>
+                                <Text style={styles.signupText}>Don't have an account? </Text>
+                                <Link href="/sign-up" asChild>
+                                    <TouchableOpacity>
+                                        <Text style={styles.signupLink}>Sign Up</Text>
+                                    </TouchableOpacity>
+                                </Link>
+                            </View>
+                        </View>
+                    </ScrollView>
+                </KeyboardAvoidingView>
 
-            <InputField
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Enter your email"
-              keyboardType="email-address"
-              error={errors.email}
-            />
+                 {/* --- Forgot Password Modal (keep as is) --- */}
+                 <Modal
+                    animationType="slide"
+                    transparent={true}
+                    visible={forgotPasswordModalVisible}
+                    onRequestClose={() => { /* ... close logic ... */ }}
+                 >
+                   {/* ... Modal Content ... */}
+                   <View style={styles.modalCenteredView}>
+                     <View style={styles.modalView}>
+                       <Text style={styles.modalTitle}>Reset Password</Text>
+                       <Text style={styles.modalText}>Enter your email address below...</Text>
+                       <TextInput
+                         style={[styles.modalInput, resetEmailError ? styles.inputError : null]}
+                         placeholder="Enter your email"
+                         value={resetEmail}
+                         onChangeText={setResetEmail}
+                         keyboardType="email-address"
+                         // ... other props
+                       />
+                       {resetEmailError ? <Text style={styles.errorText}>{resetEmailError}</Text> : null}
+                       <CustomButton
+                         title={processingReset ? 'Sending...' : 'Send Reset Email'}
+                         handlePress={handleForgotPassword}
+                         containerStyles="mt-4 self-stretch"
+                         isLoading={processingReset}
+                       />
+                       <TouchableOpacity
+                         style={styles.modalCloseButton}
+                         onPress={() => { /* ... close logic ... */ }}
+                       >
+                         <Text style={styles.modalCloseText}>Cancel</Text>
+                       </TouchableOpacity>
+                     </View>
+                   </View>
+                 </Modal>
 
-            <InputField
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Enter your password"
-              secureTextEntry
-              error={errors.password}
-            />
-
-            <View style={styles.forgotPasswordContainer}>
-              <TouchableOpacity>
-                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-              </TouchableOpacity>
-            </View>
-
-            <CustomButton
-              title="Sign In"
-              handlePress={handleSignIn}
-              containerStyles="mt-4"
-            />
-
-            <View style={styles.signupContainer}>
-              <Text style={styles.signupText}>Don't have an account? </Text>
-              <Link href="/sign-up" asChild>
-                <TouchableOpacity>
-                  <Text style={styles.signupLink}>Sign Up</Text>
-                </TouchableOpacity>
-              </Link>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
+            </SafeAreaView>
+        </ImageBackground>
+    );
 };
 
+// --- Add Style for the new error text ---
 const styles = StyleSheet.create({
+  backgroundImage: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#FFCCE1',
+    backgroundColor: 'transparent',
   },
   scrollView: {
     flexGrow: 1,
     padding: 20,
+    justifyContent: 'center',
   },
   logoContainer: {
     alignItems: 'center',
-    marginTop: 20,
     marginBottom: 40,
   },
-  logo: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#8174A0',
-  },
+ 
   formContainer: {
-    backgroundColor: '#F2F9FF',
-    borderRadius: 20,
-    padding: 20,
+    height:'60%',
+    marginTop: 80,
+    
+    padding: 25,
     width: '100%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
+    
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#8174A0',
-    marginBottom: 8,
+    color: COLORS.darkestMaroon,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 12,
     color: '#999',
-    marginBottom: 24,
+    marginBottom: 18,
+    textAlign: 'center',
   },
-  forgotPasswordContainer: {
-    alignItems: 'flex-end',
-    marginTop: 8,
-  },
-  forgotPasswordText: {
-    color: '#8174A0',
-    fontSize: 14,
-  },
-  signupContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 20,
-  },
-  signupText: {
-    color: '#666',
-  },
-  signupLink: {
-    color: '#8174A0',
+  forgotPasswordContainer: { alignItems: 'flex-end', marginTop: 8, marginBottom: 12 }, // Added marginBottom
+  forgotPasswordText: { color: COLORS.maroon, fontSize: 14 },
+  signupContainer: { flexDirection: 'row', justifyContent: 'center', marginTop: 20 },
+  signupText: { color: '#666' },
+  signupLink: { color: COLORS.maroon, fontWeight: 'bold' },
+
+  // --- Style for the inline sign-in error ---
+  signInErrorText: {
+    color: COLORS.error,
+    fontSize: 16,
     fontWeight: 'bold',
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 10,
+    padding: 10,
   },
+  errorContainer: {
+    backgroundColor: 'rgba(255, 0, 0, 0.1)',
+    borderRadius: 8,
+    marginVertical: 10,
+    borderWidth: 1,
+    borderColor: COLORS.error,
+  },
+
+  // --- Modal Styles (keep as is) ---
+   modalCenteredView: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0, 0, 0, 0.5)' },
+   modalView: { margin: 20, backgroundColor: 'white', borderRadius: 20, padding: 35, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5, width: '90%' },
+   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15, textAlign: 'center', color: COLORS.secondary },
+   modalText: { marginBottom: 15, textAlign: 'center', color: '#666' },
+   modalInput: { height: 45, borderColor: '#ddd', borderWidth: 1, borderRadius: 8, marginBottom: 5, paddingHorizontal: 15, width: '100%', fontSize: 16 },
+   inputError: { borderColor: COLORS.error },
+   errorText: { color: COLORS.error, fontSize: 12, marginBottom: 10, alignSelf: 'flex-start' },
+   modalCloseButton: { marginTop: 15 },
+   modalCloseText: { color: COLORS.secondary, fontWeight: 'bold' },
 });
 
 export default SignIn;

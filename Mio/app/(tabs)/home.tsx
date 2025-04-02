@@ -12,22 +12,21 @@ import {
   Dimensions,
   RefreshControl,
   Platform,
-  Alert,
+ 
   Modal,
-  Animated,
-  Easing
+  
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, getDocs, collection } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { COLORS } from '../../constants/Colors';
 import { debounce } from 'lodash';
 import * as Haptics from 'expo-haptics';
-import mainLogo from '../../assets/images/mainLogo.png';
 import icon from '../../assets/images/icon.png';
+import mioLogo from '../../assets/images/mioLogo.png';
 import { useFavorites } from '../../context/FavoritesContext';
 
 const { width } = Dimensions.get('window');
@@ -49,6 +48,7 @@ interface ShowItem {
   genreIds?: number[];
   originCountry?: string[];
   originalLanguage?: string;
+  order?: number; // For sorting in admin-specified order
 }
 
 // Feedback Modal component similar to seriesDetails.tsx
@@ -68,10 +68,10 @@ const FeedbackModal = ({
   
   if (type === 'error') {
     iconName = 'close-circle';
-    iconColor = '#FF6B6B';
+    iconColor = COLORS.darkestMaroon;
   } else if (type === 'warning') {
     iconName = 'alert-circle';
-    iconColor = '#FFA500';
+    iconColor = COLORS.darkMaroon;
   }
   
   return (
@@ -133,12 +133,6 @@ export default function HomeScreen() {
     getTotalFavorites
   } = useFavorites();
   
-  // Add logging to verify context is accessible
-  console.log('Favorites Context in HomeScreen:', 
-    userFavorites ? 
-    `Shows: ${userFavorites.shows.length}, Removals: ${removalCount}` : 
-    'Context not loaded');
-  
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<ShowItem[]>([]);
@@ -162,7 +156,7 @@ export default function HomeScreen() {
   
   // Force re-render when userFavorites changes to update UI
   useEffect(() => {
-    console.log(`Home: userFavorites updated, refreshing UI display`);
+    // Remove logging
   }, [userFavorites]);
 
   // Update to open appropriate confirmation modal
@@ -170,7 +164,7 @@ export default function HomeScreen() {
     setSelectedShowForFavorite(show);
     
     const currentlyFavorite = isFavorite(show);
-    console.log(`Home: Attempting to toggle favorite for ${show.title} (${show.id}), current status: ${currentlyFavorite ? 'favorite' : 'not favorite'}`);
+    // Remove logging
     
     // Trigger haptic feedback
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -194,11 +188,11 @@ export default function HomeScreen() {
       selectedShowForFavorite,
       // Success callback
       () => {
-        console.log(`Home: Successfully added ${selectedShowForFavorite.title} to favorites`);
+        // Remove logging
         
         // Refresh favorites from Firestore to ensure UI is in sync
         refreshUserFavorites().then(() => {
-          console.log(`Home: Refreshed favorites from Firestore after adding`);
+          // Remove logging
           setFeedbackModal({
             visible: true,
             message: `Added to your favorites`,
@@ -208,7 +202,7 @@ export default function HomeScreen() {
       },
       // Error callback
       () => {
-        console.error(`Home: Failed to add ${selectedShowForFavorite.title} to favorites`);
+        // Remove logging
         setFeedbackModal({
           visible: true,
           message: 'Failed to add to favorites. Please try again.',
@@ -217,7 +211,7 @@ export default function HomeScreen() {
       },
       // Limit callback
       () => {
-        console.warn(`Home: Favorites limit reached (${MAX_FAVORITES} maximum)`);
+        // Remove logging
         setFeedbackModal({
           visible: true,
           message: `You can only add up to ${MAX_FAVORITES} favorites. Please remove some before adding more.`,
@@ -237,11 +231,11 @@ export default function HomeScreen() {
       selectedShowForFavorite,
       // Success callback
       () => {
-        console.log(`Home: Successfully removed ${selectedShowForFavorite.title} from favorites`);
+        // Remove logging
         
         // Refresh favorites from Firestore to ensure UI is in sync
         refreshUserFavorites().then(() => {
-          console.log(`Home: Refreshed favorites from Firestore after removal`);
+          // Remove logging
           setFeedbackModal({
             visible: true,
             message: `Removed from your favorites`,
@@ -251,7 +245,7 @@ export default function HomeScreen() {
       },
       // Error callback
       () => {
-        console.error(`Home: Failed to remove ${selectedShowForFavorite.title} from favorites`);
+        // Remove logging
         setFeedbackModal({
           visible: true,
           message: 'Failed to remove from favorites. Please try again.',
@@ -260,7 +254,7 @@ export default function HomeScreen() {
       },
       // Cooldown callback
       (cooldownTime) => {
-        console.warn(`Home: Cooldown active (${cooldownTime}s) when trying to remove ${selectedShowForFavorite.title}`);
+        // Remove logging
         const minutes = Math.floor(cooldownTime / 60);
         const seconds = cooldownTime % 60;
         setFeedbackModal({
@@ -272,45 +266,56 @@ export default function HomeScreen() {
     );
   };
 
-  // Refactor the fetchTrendingShows function to use the helper
+  // Refactor the fetchTrendingShows function to use Firestore single document
   const fetchTrendingShows = async (timeWindow: 'week') => {
     setIsLoading(true);
     try {
-      // Fetch K-Drama using the discover endpoint
-      const kdramaResponse = await fetch(
-        `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_origin_country=KR&with_original_language=ko&sort_by=popularity.desc`
-      );
-      const kdramaData = await kdramaResponse.json();
-  
-      // Fetch Anime using the discover endpoint with keyword filtering (keyword id 210024)
-      const animeResponse = await fetch(
-        `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_origin_country=JP&with_keywords=210024&sort_by=popularity.desc`
-      );
-      const animeData = await animeResponse.json();
-  
-      // Merge the two results arrays
-      const combinedResults =interleavePreservingOrder(
-        (kdramaData.results || []),
-        (animeData.results || []))
-    
-  
-      // Classify each show using your classifyShow helper (which will label them as 'kdrama' or 'anime')
-      const classifiedShows = await Promise.all(
-        combinedResults.map((show: any) => classifyShow(show))
-      );
-  
-      // Filter out null values from classification
-      let filteredShows = classifiedShows.filter((show): show is ShowItem => show !== null);
-  
-     
+      // Get trending shows from single Firestore document (only 1 read operation)
+      const trendingDocRef = doc(db, 'trending', 'trendingShows');
+      const trendingDoc = await getDoc(trendingDocRef);
       
-  
-      // Optionally limit the number of items
-      filteredShows = filteredShows.slice(0,30);
-  
-      setTrendingShows(filteredShows);
+      if (trendingDoc.exists() && trendingDoc.data().shows && trendingDoc.data().shows.length > 0) {
+        const shows = trendingDoc.data().shows as ShowItem[];
+        
+        // Sort by order field to maintain admin-specified ordering
+        shows.sort((a, b) => (a.order || 0) - (b.order || 0));
+        // Remove logging
+        
+        setTrendingShows(shows);
+      } else {
+        // Remove logging
+        // Fetch K-Drama using the discover endpoint
+        const kdramaResponse = await fetch(
+          `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_origin_country=KR&with_original_language=ko&sort_by=popularity.desc`
+        );
+        const kdramaData = await kdramaResponse.json();
+    
+        // Fetch Anime using the discover endpoint with keyword filtering
+        const animeResponse = await fetch(
+          `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_origin_country=JP&with_keywords=210024&sort_by=popularity.desc`
+        );
+        const animeData = await animeResponse.json();
+    
+        // Merge the two results arrays
+        const combinedResults = interleavePreservingOrder(
+          (kdramaData.results || []),
+          (animeData.results || []))
+      
+        // Classify each show using your classifyShow helper (which will label them as 'kdrama' or 'anime')
+        const classifiedShows = await Promise.all(
+          combinedResults.map((show: any) => classifyShow(show))
+        );
+    
+        // Filter out null values from classification
+        let filteredShows = classifiedShows.filter((show): show is ShowItem => show !== null);
+        
+        // Limit the number of items
+        filteredShows = filteredShows.slice(0, 30);
+        
+        setTrendingShows(filteredShows);
+      }
     } catch (error) {
-      console.error('Error fetching trending shows:', error);
+      // Remove logging
       setFeedbackModal({
         visible: true,
         message: 'Failed to load trending shows. Please try again.',
@@ -401,7 +406,7 @@ export default function HomeScreen() {
         
         setSearchResults(uniqueResults);
       } catch (error) {
-        console.error('Error searching shows:', error);
+        // Remove logging
         setFeedbackModal({
           visible: true,
           message: 'Search failed. Please try again.',
@@ -500,21 +505,24 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
-          <Image source={mainLogo} style={styles.headerLogo} />
-          <Text style={styles.headerTitle}>Discover</Text>
+          <Image 
+            source={mioLogo}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
         </View>
         {/* Add favorites counter badge */}
         <View style={styles.favoritesCountContainer}>
           <Ionicons name="heart" size={18} color="#FFF" />
           <Text style={styles.favoritesCountText}>
             {getTotalFavorites()}/{MAX_FAVORITES}
-        </Text>
+          </Text>
         </View>
       </View>
       
       <View style={styles.searchContainer}>
         <View style={styles.searchInputContainer}>
-          <Ionicons name="search-outline" size={20} color="#888" style={styles.searchIcon} />
+          <Ionicons name="search-outline" size={20} color={COLORS.darkestMaroon} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search anime or K-drama..."
@@ -642,7 +650,7 @@ export default function HomeScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModalContent}>
-            <Ionicons name="alert-circle-outline" size={60} color="#FFA500" />
+            <Ionicons name="alert-circle-outline" size={60} color={COLORS.darkMaroon} />
             <Text style={styles.confirmTitle}>Remove from Favorites?</Text>
             <Text style={styles.confirmMessage}>
               You have {MAX_WEEKLY_REMOVALS - removalCount} removals left.
@@ -691,7 +699,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 15,
+    paddingBottom: 5,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -700,20 +708,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  headerLogo: {
-    width: 30,
-    height: 30,
-    marginRight: 10,
-    resizeMode: 'contain',
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: COLORS.secondary,
-  },
   searchContainer: {
+    marginTop: 10,
     paddingHorizontal: 20,
-    marginBottom: 15,
+    marginBottom:5,
   },
   searchInputContainer: {
     flexDirection: 'row',
@@ -777,13 +775,17 @@ const styles = StyleSheet.create({
     width: '100%',
     height: CARD_HEIGHT,
     resizeMode: 'cover',
+    borderWidth: .5,
+    borderColor: COLORS.maroon,
+    borderRadius: 12,
+    
   },
   cardTitle: {
     marginTop: 8,
     marginBottom: 16,
     fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
+    fontWeight: '800',
+    color: COLORS.darkestMaroon,
     textAlign: 'center',
   },
   cardOverlay: {
@@ -882,11 +884,13 @@ const styles = StyleSheet.create({
     width: width * 0.8,
     padding: 24,
     alignItems: 'center',
+    borderWidth: 0.5,
+    borderColor: COLORS.darkestMaroon,
   },
   confirmTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: COLORS.darkMaroon,
     marginTop: 12,
   },
   confirmMessage: {
@@ -914,7 +918,7 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#555',
+    color: COLORS.darkMaroon,
   },
   addConfirmButton: {
     backgroundColor: COLORS.secondary,
@@ -926,7 +930,7 @@ const styles = StyleSheet.create({
     color: '#FFF',
   },
   removeConfirmButton: {
-    backgroundColor: '#FF6B6B',
+    backgroundColor: COLORS.darkestMaroon,
     marginLeft: 8,
   },
   removeConfirmButtonText: {
@@ -960,5 +964,10 @@ const styles = StyleSheet.create({
   typeLabelText: {
     fontSize: 10,
     fontWeight: 'bold',
+  },
+  logoImage: {
+    width: 60,
+    height: 30,
+    
   },
 });

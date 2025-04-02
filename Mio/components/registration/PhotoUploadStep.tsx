@@ -7,64 +7,47 @@ import {
   ScrollView, 
   Image,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
+  StatusBar
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRegistration } from '../../context/RegistrationContext';
 import { uploadImage } from '../../config/cloudinaryConfig';
+import { COLORS } from '../../constants/Colors';
 
 // This component uploads images to Cloudinary and stores the Cloudinary URLs
 const PhotoUploadStep = () => {
   const { registrationData, updateField, nextStep, prevStep } = useRegistration();
   const [error, setError] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [imageUri, setImageUri] = useState('');
 
-  const pickImage = async (isProfile = false) => {
+  const pickImage = async () => {
+    setIsUploading(true);
     try {
-      console.log('Opening image picker...');
+      // No permissions request needed for picking images from the library
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: 'images',
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8, // Reduced quality to keep file sizes smaller
+        quality: 0.8,
       });
 
-      console.log('Image picker result:', result.canceled ? 'Canceled' : 'Image selected');
-      
       if (!result.canceled) {
-        setIsUploading(true);
-        try {
-          console.log('Selected image URI:', result.assets[0].uri);
-          // Upload to Cloudinary and get URL
-          const cloudinaryUrl = await uploadImage(result.assets[0].uri);
-          console.log('Cloudinary upload successful:', cloudinaryUrl);
-          
-          if (isProfile) {
-            // Store Cloudinary URL of the profile picture
-            updateField('profilePic', cloudinaryUrl);
-            setError('');
-          } else {
-            if (registrationData.additionalPics.length < 3) {
-              // Store Cloudinary URLs of additional pictures
-              updateField('additionalPics', [
-                ...registrationData.additionalPics,
-                cloudinaryUrl,
-              ]);
-            } else {
-              Alert.alert('Maximum Photos', 'You can only upload up to 3 additional photos.');
-            }
-          }
-        } catch (error) {
-          console.error('Error uploading to Cloudinary:', error);
-          Alert.alert('Upload Error', 'Failed to upload image to Cloudinary. Please try again.');
-        } finally {
-          setIsUploading(false);
-        }
+        // Upload to Cloudinary
+        const cloudinaryUrl = await uploadImage(result.assets[0].uri);
+        setImageUri(result.assets[0].uri);
+        updateField('profilePic', cloudinaryUrl);
+        setError('');
       }
     } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to select image. Please try again.');
+      Alert.alert(
+        "Upload Failed",
+        "Failed to upload your photo. Please try again.",
+        [{ text: "OK" }]
+      );
+    } finally {
       setIsUploading(false);
     }
   };
@@ -87,7 +70,7 @@ const PhotoUploadStep = () => {
   const renderProfilePicture = () => {
     if (registrationData.profilePic) {
       return (
-        <TouchableOpacity onPress={() => pickImage(true)} style={styles.profilePicContainer}>
+        <TouchableOpacity onPress={pickImage} style={styles.profilePicContainer}>
           <Image source={{ uri: registrationData.profilePic }} style={styles.profilePic} />
           <View style={styles.editIconContainer}>
             <Ionicons name="pencil" size={20} color="white" />
@@ -98,15 +81,15 @@ const PhotoUploadStep = () => {
 
     return (
       <TouchableOpacity 
-        onPress={() => pickImage(true)} 
+        onPress={pickImage} 
         style={styles.addProfilePicButton}
         disabled={isUploading}
       >
         {isUploading ? (
-          <ActivityIndicator size="large" color="#8174A0" />
+          <ActivityIndicator size="large" color={COLORS.darkMaroon} />
         ) : (
           <>
-            <Ionicons name="add" size={40} color="#8174A0" />
+            <Ionicons name="add" size={40} color={COLORS.darkMaroon} />
             <Text style={styles.addProfileText}>Add Profile Picture</Text>
           </>
         )}
@@ -115,74 +98,78 @@ const PhotoUploadStep = () => {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Upload Your Photos</Text>
-      <Text style={styles.subtitle}>Add photos to complete your profile</Text>
+    <>
+      <StatusBar backgroundColor="white" barStyle="dark-content" />
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <Text style={styles.title}>Upload Your Photos</Text>
+        <Text style={styles.subtitle}>Add photos to complete your profile</Text>
 
-      <View style={styles.sectionTitle}>
-        <Text style={styles.label}>Profile Picture (Required)</Text>
-      </View>
-      
-      {renderProfilePicture()}
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        <View style={styles.sectionTitle}>
+          <Text style={styles.label}>Profile Picture (Required)</Text>
+        </View>
+        
+        {renderProfilePicture()}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-      <View style={styles.sectionTitle}>
-        <Text style={styles.label}>Additional Photos (Optional)</Text>
-        <Text style={styles.subLabel}>Add up to 3 more photos to showcase your personality</Text>
-      </View>
+        <View style={styles.sectionTitle}>
+          <Text style={styles.label}>Additional Photos (Optional)</Text>
+          <Text style={styles.subLabel}>Add up to 3 more photos to showcase your personality</Text>
+        </View>
 
-      <View style={styles.additionalPicsContainer}>
-        {registrationData.additionalPics.map((pic, index) => (
-          <View key={index} style={styles.additionalPicItem}>
-            <Image source={{ uri: pic }} style={styles.additionalPic} />
+        <View style={styles.additionalPicsContainer}>
+          {registrationData.additionalPics.map((pic, index) => (
+            <View key={index} style={styles.additionalPicItem}>
+              <Image source={{ uri: pic }} style={styles.additionalPic} />
+              <TouchableOpacity 
+                style={styles.removeIconContainer} 
+                onPress={() => removeAdditionalPic(index)}
+              >
+                <Ionicons name="close-circle" size={24} color="#FF6B6B" />
+              </TouchableOpacity>
+            </View>
+          ))}
+
+          {registrationData.additionalPics.length < 3 && (
             <TouchableOpacity 
-              style={styles.removeIconContainer} 
-              onPress={() => removeAdditionalPic(index)}
+              style={styles.addAdditionalPicButton}
+              onPress={() => pickImage()}
+              disabled={isUploading}
             >
-              <Ionicons name="close-circle" size={24} color="#FF6B6B" />
+              {isUploading ? (
+                <ActivityIndicator size="small" color={COLORS.darkMaroon} />
+              ) : (
+                <Ionicons name="add" size={30} color={COLORS.darkMaroon} />
+              )}
             </TouchableOpacity>
-          </View>
-        ))}
+          )}
+        </View>
 
-        {registrationData.additionalPics.length < 3 && (
+        <View style={styles.buttonContainer}>
           <TouchableOpacity 
-            style={styles.addAdditionalPicButton}
-            onPress={() => pickImage(false)}
+            style={styles.backButton} 
+            onPress={prevStep}
             disabled={isUploading}
           >
-            {isUploading ? (
-              <ActivityIndicator size="small" color="#8174A0" />
-            ) : (
-              <Ionicons name="add" size={30} color="#8174A0" />
-            )}
+            <Text style={styles.backButtonText}>Back</Text>
           </TouchableOpacity>
-        )}
-      </View>
-
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={prevStep}
-          disabled={isUploading}
-        >
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.nextButton, isUploading && styles.disabledButton]} 
-          onPress={handleNext}
-          disabled={isUploading}
-        >
-          <Text style={styles.nextButtonText}>Continue</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+          
+          <TouchableOpacity 
+            style={[styles.nextButton, isUploading && styles.disabledButton]} 
+            onPress={handleNext}
+            disabled={isUploading}
+          >
+            <Text style={styles.nextButtonText}>Continue</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: COLORS.white,
   },
   content: {
     padding: 20,
@@ -190,7 +177,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#8174A0',
+    color: COLORS.darkestMaroon,
     marginBottom: 8,
   },
   subtitle: {
@@ -205,7 +192,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#8174A0',
+    color: COLORS.darkMaroon,
   },
   subLabel: {
     fontSize: 14,
@@ -229,7 +216,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#8174A0',
+    backgroundColor: COLORS.darkestMaroon,
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -243,16 +230,16 @@ const styles = StyleSheet.create({
     height: 150,
     borderRadius: 75,
     borderWidth: 2,
-    borderColor: '#FFCCE1',
+    borderColor: COLORS.darkMaroon,
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
     marginBottom: 24,
-    backgroundColor: '#F2F9FF',
+    backgroundColor: 'white',
   },
   addProfileText: {
-    color: '#8174A0',
+    color: COLORS.maroon,
     marginTop: 8,
     textAlign: 'center',
     paddingHorizontal: 10,
@@ -292,11 +279,11 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 8,
     borderWidth: 2,
-    borderColor: '#FFCCE1',
+    borderColor: COLORS.darkMaroon,
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F2F9FF',
+    backgroundColor: 'white',
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -305,22 +292,22 @@ const styles = StyleSheet.create({
   },
   backButton: {
     flex: 1,
-    backgroundColor: '#FFF5D7',
+    backgroundColor: COLORS.maroon,
     borderRadius: 20,
     paddingVertical: 15,
     alignItems: 'center',
     marginRight: 8,
     borderWidth: 1,
-    borderColor: '#FFCCE1',
+    borderColor: COLORS.darkestMaroon,
   },
   backButtonText: {
-    color: '#8174A0',
+    color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },
   nextButton: {
     flex: 1,
-    backgroundColor: '#8174A0',
+    backgroundColor: COLORS.darkestMaroon,
     borderRadius: 20,
     paddingVertical: 15,
     alignItems: 'center',

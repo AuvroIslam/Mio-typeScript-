@@ -6,13 +6,16 @@ import {
   TouchableOpacity, 
   KeyboardAvoidingView, 
   Platform,
-  ScrollView
+  ScrollView,
+  ImageBackground
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CustomButton, InputField, Loader } from '../../components';
 import { useAuth } from '../../context/AuthContext';
 import Toast from 'react-native-toast-message';
+import { Colors, COLORS } from '../../constants/Colors';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const SignUp = () => {
   const router = useRouter();
@@ -29,12 +32,12 @@ const SignUp = () => {
     confirmPassword: ''
   });
 
-  // Handle redirection to registration after successful signup
+  // Handle redirection to email verification after successful signup
   useEffect(() => {
     if (registrationReady && user) {
       // Use setTimeout to ensure navigation happens after layout is fully mounted
       const timer = setTimeout(() => {
-        router.push("/(registration)/registration");
+        router.push("/(auth)/email-verification");
       }, 0);
       return () => clearTimeout(timer);
     }
@@ -172,108 +175,112 @@ const SignUp = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-        <ScrollView contentContainerStyle={styles.scrollView}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.logo}>Mio</Text>
-          </View>
-
-          <View style={styles.formContainer}>
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Sign up to get started</Text>
-
-            <InputField
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Enter your email"
-              keyboardType="email-address"
-              error={errors.email}
-            />
-
-            <InputField
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Create a password"
-              secureTextEntry
-              error={errors.password}
-            />
-
-            <InputField
-              label="Confirm Password"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              placeholder="Confirm your password"
-              secureTextEntry
-              error={errors.confirmPassword}
-            />
-
-            <CustomButton
-              title="Sign Up"
-              handlePress={handleSignUp}
-              containerStyles="mt-4"
-            />
-
-            <View style={styles.signinContainer}>
-              <Text style={styles.signinText}>Already have an account? </Text>
-              <Link href="/sign-in" asChild>
-                <TouchableOpacity>
-                  <Text style={styles.signinLink}>Sign In</Text>
-                </TouchableOpacity>
-              </Link>
+    <ImageBackground 
+      source={require('../../assets/images/signinBackground.jpg')}
+      style={styles.backgroundImage}
+    >
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <ScrollView contentContainerStyle={styles.scrollView}>
+            <View style={styles.logoContainer}>
+              
             </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+
+            <View style={styles.formContainer}>
+              <Text style={styles.title}>Create Account</Text>
+              <Text style={styles.subtitle}>Sign up to get started</Text>
+
+              <InputField
+                label="Email"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="Enter your email"
+                keyboardType="email-address"
+                error={errors.email}
+              />
+
+              <InputField
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Create a password"
+                secureTextEntry
+                error={errors.password}
+              />
+
+              <InputField
+                label="Confirm Password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Confirm your password"
+                secureTextEntry
+                error={errors.confirmPassword}
+              />
+
+              <CustomButton
+                title="Sign Up"
+                handlePress={handleSignUp}
+                containerStyles="mt-4 self-center"
+              />
+
+              <View style={styles.signinContainer}>
+                <Text style={styles.signinText}>Already have an account? </Text>
+                <Link href="/sign-in" asChild>
+                  <TouchableOpacity>
+                    <Text style={styles.signinLink}>Sign In</Text>
+                  </TouchableOpacity>
+                </Link>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </ImageBackground>
   );
 };
 
 const styles = StyleSheet.create({
+  backgroundImage: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#FFCCE1',
+    backgroundColor: 'transparent',
   },
   scrollView: {
     flexGrow: 1,
     padding: 20,
+    justifyContent: 'center',
   },
   logoContainer: {
     alignItems: 'center',
-    marginTop: 20,
     marginBottom: 40,
   },
-  logo: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: '#8174A0',
-  },
+ 
   formContainer: {
-    backgroundColor: '#F2F9FF',
-    borderRadius: 20,
-    padding: 20,
+    height:'60%',
+    marginTop: 80,
+    padding: 25,
     width: '100%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
+    
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#8174A0',
-    marginBottom: 8,
+    color: COLORS.darkestMaroon,
+    marginBottom: 4,
+    textAlign: 'center',
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 12,
     color: '#999',
-    marginBottom: 24,
+    marginBottom: 18,
+    textAlign: 'center',
   },
   signinContainer: {
     flexDirection: 'row',
@@ -284,7 +291,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   signinLink: {
-    color: '#8174A0',
+    color: COLORS.maroon,
     fontWeight: 'bold',
   },
 });

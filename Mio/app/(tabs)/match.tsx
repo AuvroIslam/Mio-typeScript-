@@ -37,12 +37,15 @@ interface MatchCardProps {
     age?: number | string;
     location?: string;
     gender?: string;
+    matchTimestamp?: any; // Add timestamp for when the match occurred
   };
   onPress: () => void;
-  onUnmatch: (userId: string) => void;
+  onUnmatch: (userId: string) => Promise<boolean>;
 }
 
 const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
+  const [isUnmatching, setIsUnmatching] = useState(false);
+  
   const confirmUnmatch = () => {
     Alert.alert(
       "Unmatch",
@@ -54,12 +57,35 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
         },
         { 
           text: "Unmatch", 
-          onPress: () => onUnmatch(match.userId),
+          onPress: () => {
+            setIsUnmatching(true);
+            onUnmatch(match.userId)
+              .catch(err => {/* Error handled in component */})
+              .finally(() => setIsUnmatching(false));
+          },
           style: "destructive"
         }
       ]
     );
   };
+
+  // Check if match is less than 24 hours old
+  const isNewMatch = () => {
+    if (!match.matchTimestamp) return false;
+    
+    // Convert Firestore timestamp to Date if necessary
+    const matchDate = match.matchTimestamp.toDate ? 
+      match.matchTimestamp.toDate() : 
+      new Date(match.matchTimestamp);
+    
+    const now = new Date();
+    const timeDiff = now.getTime() - matchDate.getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    return hoursDiff < 24;
+  };
+
+  const shouldBlurImage = isNewMatch();
 
   return (
     <TouchableOpacity
@@ -67,10 +93,23 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
       activeOpacity={0.9}
       onPress={onPress}
     >
-      <Image
-        source={{ uri: match.profilePic || 'https://via.placeholder.com/400x600?text=No+Image' }}
-        style={styles.matchImage}
-      />
+      <View style={styles.imageContainer}>
+        {shouldBlurImage ? (
+          <View style={styles.blurContainer}>
+            <Image
+              source={{ uri: match.profilePic || 'https://via.placeholder.com/400x600?text=No+Image' }}
+              style={[styles.matchImage]}
+              blurRadius={40}
+            />
+          </View>
+        ) : (
+          <Image
+            source={{ uri: match.profilePic || 'https://via.placeholder.com/400x600?text=No+Image' }}
+            style={styles.matchImage}
+          />
+        )}
+      </View>
+      
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.8)']}
         style={styles.matchGradient}
@@ -91,12 +130,24 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
         </Text>
       </View>
       
+      {/* Unlock timer text */}
+      {shouldBlurImage && (
+        <View style={styles.unlockTimerContainer}>
+          <Text style={styles.unlockTimerText}>Unlocks after 24h of matching</Text>
+        </View>
+      )}
+      
       {/* Unmatch Button */}
       <TouchableOpacity 
-        style={styles.unmatchButton}
+        style={[styles.unmatchButton, isUnmatching && styles.unmatchButtonDisabled]}
         onPress={confirmUnmatch}
+        disabled={isUnmatching}
       >
-        <Ionicons name="close-circle" size={24} color="#FFF" />
+        {isUnmatching ? (
+          <ActivityIndicator size="small" color="#FFF" />
+        ) : (
+          <Ionicons name="close-circle" size={24} color="#FFF" />
+        )}
       </TouchableOpacity>
       
       <View style={styles.matchInfoContainer}>
@@ -182,7 +233,6 @@ export default function MatchScreen() {
     // Store the current match count to calculate new matches later
     const currentMatchCount = matches.length;
     setMatchesBeforeSearch(currentMatchCount);
-    console.log(`Storing match count before search: ${currentMatchCount}`);
     
     try {
       // Search for matches - the useEffect will handle showing notifications
@@ -198,7 +248,9 @@ export default function MatchScreen() {
       params: {
         userId: match.userId,
         matchLevel: match.matchLevel,
-        commonShows: match.commonShowIds.join(',')
+        commonShows: match.commonShowIds.join(','),
+        favoriteShows: match.favoriteShowIds ? match.favoriteShowIds.join(',') : '',
+        matchTimestamp: match.matchTimestamp ? match.matchTimestamp.toDate ? match.matchTimestamp.toDate().toISOString() : match.matchTimestamp.toString() : ''
       }
     });
   };
@@ -206,8 +258,15 @@ export default function MatchScreen() {
   const handleUnmatch = async (userId: string) => {
     try {
       await unmatchUser(userId);
+      return true;
     } catch (error) {
-      // Error already handled by the context
+      // Show an alert to the user
+      Alert.alert(
+        "Unmatch Failed",
+        "There was a problem unmatching this user. Please try again later.",
+        [{ text: "OK" }]
+      );
+      throw error; // Re-throw to be caught in the component
     }
   };
   
@@ -216,7 +275,6 @@ export default function MatchScreen() {
     if (isSearching === false && matchesBeforeSearch > 0) {
       // Calculate new matches after search completes
       const newMatches = matches.length - matchesBeforeSearch;
-      console.log(`Match update detected - New matches calculated: ${newMatches}`);
       
       if (newMatches !== newMatchCount) {
         setNewMatchCount(newMatches);
@@ -466,7 +524,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
+    color: COLORS.darkestMaroon,
   },
   contentContainer: {
     flex: 1,
@@ -524,6 +582,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignSelf: 'center',
   },
+  imageContainer: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+  },
   matchImage: {
     width: '100%',
     height: '100%',
@@ -547,10 +610,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   regularMatchBadge: {
-    backgroundColor: 'rgba(255,105,180,0.9)',
+    backgroundColor: COLORS.primary,
   },
   superMatchBadge: {
-    backgroundColor: 'rgba(255,215,0,0.9)',
+    backgroundColor: COLORS.secondary,
   },
   matchBadgeText: {
     color: '#FFF',
@@ -649,10 +712,13 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255, 59, 78, 0.8)',
+    backgroundColor: COLORS.darkestMaroon,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 10,
+  },
+  unmatchButtonDisabled: {
+    opacity: 0.5,
   },
   modalOverlay: {
     flex: 1,
@@ -708,5 +774,29 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  blurContainer: {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+    borderRadius: 20,
+  },
+  unlockTimerContainer: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    zIndex: 10,
+  },
+  unlockTimerText: {
+    color: COLORS.secondary,
+    fontSize: 12,
+    fontWeight: '500',
   },
 });

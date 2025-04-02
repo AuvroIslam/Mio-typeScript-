@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -9,13 +9,17 @@ import {
   Image,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Alert
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
+import { useMatch } from '../../context/MatchContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
   collection, 
   query, 
@@ -28,9 +32,18 @@ import {
   arrayUnion, 
   setDoc, 
   Timestamp,
-  getDocs
+  getDocs,
+  limit,
+  writeBatch,
+  increment,
+  startAfter
 } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
+
+// Constants to optimize Firestore usage
+const MESSAGES_PER_BATCH = 10; // Number of messages to fetch per pagination
+const MESSAGE_BATCH_SIZE = 20; // Number of messages to batch before creating a new document
+const CACHE_EXPIRY = 3600000; // Cache expiry time in milliseconds (1 hour)
 
 interface Message {
   id?: string;
@@ -39,6 +52,13 @@ interface Message {
   senderName: string;
   timestamp: Timestamp;
   read: boolean;
+}
+
+interface MessageBatch {
+  id: string;
+  messages: Message[];
+  startTime: Timestamp;
+  endTime: Timestamp;
 }
 
 interface Conversation {
@@ -51,24 +71,154 @@ interface Conversation {
     timestamp: Timestamp;
   };
   unreadCount: {[uid: string]: number};
+  currentBatchId?: string; // Track current batch for more efficient writes
+  messageCount?: number; // Track total message count
+}
+
+// Custom hook for managing messages
+function useMessages(conversation: Conversation | null, user: any) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [canLoadMore, setCanLoadMore] = useState(true);
+  const [lastVisible, setLastVisible] = useState<any>(null);
+  
+  // Load messages with pagination
+  const loadMessages = useCallback(async (convId: string, loadMore = false) => {
+    if (isLoadingMore || (!loadMore && messages.length > 0)) return;
+    
+    try {
+      setIsLoadingMore(true);
+      
+      // Query message batches instead of individual messages
+      const batchesRef = collection(db, `conversations/${convId}/messageBatches`);
+      let q = query(batchesRef, orderBy('endTime', 'desc'), limit(MESSAGES_PER_BATCH));
+      
+      // If loading more, start after the last visible item
+      if (loadMore && lastVisible) {
+        q = query(batchesRef, orderBy('endTime', 'desc'), limit(MESSAGES_PER_BATCH), 
+          // @ts-ignore - Type issue with startAfter
+          startAfter(lastVisible));
+      }
+      
+      const querySnapshot = await getDocs(q);
+      const batches: MessageBatch[] = [];
+      let lastDoc = null;
+      
+      if (!querySnapshot.empty) {
+        querySnapshot.forEach((doc) => {
+          const batchData = doc.data() as MessageBatch;
+          batchData.id = doc.id;
+          batches.push(batchData);
+        });
+        lastDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
+      }
+      
+      // Process and flatten message batches
+      const allMessages: Message[] = [];
+      batches.forEach(batch => {
+        if (batch.messages && Array.isArray(batch.messages)) {
+          batch.messages.forEach(msg => allMessages.push(msg));
+        }
+      });
+      
+      // Sort messages by timestamp
+      allMessages.sort((a, b) => {
+        const timeA = a.timestamp.toMillis();
+        const timeB = b.timestamp.toMillis();
+        return timeA - timeB;
+      });
+      
+      // Update state
+      if (loadMore) {
+        setMessages(prev => [...prev, ...allMessages]);
+      } else {
+        setMessages(allMessages);
+      }
+      
+      setLastVisible(lastDoc);
+      setCanLoadMore(querySnapshot.size >= MESSAGES_PER_BATCH);
+    } catch (error) {
+      console.error('Error loading messages:', error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, messages.length, lastVisible]);
+  
+  // Add a single message
+  const addMessage = useCallback((newMessage: Message) => {
+    setMessages(prevMessages => [...prevMessages, newMessage]);
+  }, []);
+  
+  // Load more messages
+  const loadMoreMessages = useCallback(() => {
+    if (!conversation || !canLoadMore || isLoadingMore) return;
+    loadMessages(conversation.id, true);
+  }, [conversation, canLoadMore, isLoadingMore, loadMessages]);
+  
+  return {
+    messages,
+    isLoadingMore,
+    canLoadMore,
+    loadMessages,
+    addMessage,
+    loadMoreMessages
+  };
 }
 
 export default function ChatScreen() {
   const { user } = useAuth();
+  const { matches } = useMatch();
   const params = useLocalSearchParams();
   const conversationId = params.conversationId as string;
   const matchId = params.matchId as string; // User ID we want to chat with (from profile)
   const fromInbox = params.fromInbox as string;
   
   const [conversation, setConversation] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [messageText, setMessageText] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [otherUser, setOtherUser] = useState<{id: string, name: string, photo: string}>({
+  const [messageText, setMessageText] = useState('');
+  const [otherUser, setOtherUser] = useState<{id: string, name: string, photo: string, matchTimestamp?: any}>({
     id: '',
     name: 'User',
     photo: ''
   });
+  const [unsubscribeConversation, setUnsubscribeConversation] = useState<() => void | null>(() => null);
+  const [unsubscribeMessages, setUnsubscribeMessages] = useState<() => void | null>(() => null);
+  
+  // Cache reference
+  const cachedConversationId = useRef<string | null>(null);
+  
+  // Use the custom messages hook
+  const { 
+    messages, 
+    isLoadingMore,
+    canLoadMore,
+    loadMessages,
+    addMessage,
+    loadMoreMessages 
+  } = useMessages(conversation, user);
+  
+  // Reference to the FlatList for scrolling
+  const flatListRef = useRef<FlatList>(null);
+
+  // Function to scroll to bottom
+  const scrollToBottom = useCallback(() => {
+    if (flatListRef.current && messages.length > 0) {
+      flatListRef.current.scrollToEnd({ animated: true });
+    }
+  }, [messages.length]);
+  
+  // Auto-scroll when new messages are added
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages.length, scrollToBottom]);
+  
+  // Clean up listeners on unmount
+  useEffect(() => {
+    return () => {
+      if (unsubscribeConversation) unsubscribeConversation();
+      if (unsubscribeMessages) unsubscribeMessages();
+    };
+  }, [unsubscribeConversation, unsubscribeMessages]);
   
   // Initialize or load existing conversation
   useEffect(() => {
@@ -80,7 +230,7 @@ export default function ChatScreen() {
       try {
         // If we have a conversation ID, just load that conversation
         if (conversationId) {
-          loadExistingConversation(conversationId);
+          await loadExistingConversation(conversationId);
           return;
         }
         
@@ -88,15 +238,26 @@ export default function ChatScreen() {
         if (matchId) {
           const existingConversationId = await findOrCreateConversation(matchId);
           if (existingConversationId) {
-            loadExistingConversation(existingConversationId);
+            await loadExistingConversation(existingConversationId);
           }
         }
       } catch (error) {
         console.error('Error initializing chat:', error);
+      } finally {
+        setIsLoading(false);
       }
     };
     
     initializeChat();
+    
+    // Clean up on unmount
+    return () => {
+      if (cachedConversationId.current) {
+        // Store last read time in AsyncStorage to reduce unnecessary reads
+        const lastReadKey = `lastRead_${cachedConversationId.current}_${user.uid}`;
+        AsyncStorage.setItem(lastReadKey, new Date().toISOString());
+      }
+    };
   }, [user, conversationId, matchId]);
   
   // Find existing conversation or create a new one
@@ -104,6 +265,19 @@ export default function ChatScreen() {
     if (!user) return null;
     
     try {
+      // Check cache first
+      const cacheKey = `conversation_${user.uid}_${otherUserId}`;
+      const cachedData = await AsyncStorage.getItem(cacheKey);
+      
+      if (cachedData) {
+        const { conversationId, timestamp } = JSON.parse(cachedData);
+        const cacheAge = Date.now() - timestamp;
+        
+        if (cacheAge < CACHE_EXPIRY) {
+          return conversationId;
+        }
+      }
+      
       // Check if conversation already exists
       const conversationsRef = collection(db, 'conversations');
       const q = query(
@@ -122,6 +296,11 @@ export default function ChatScreen() {
       });
       
       if (existingConversationId) {
+        // Update cache
+        await AsyncStorage.setItem(cacheKey, JSON.stringify({
+          conversationId: existingConversationId,
+          timestamp: Date.now()
+        }));
         return existingConversationId;
       }
       
@@ -137,9 +316,13 @@ export default function ChatScreen() {
       const userData = userDoc.data().profile || {};
       const otherUserData = otherUserDoc.data().profile || {};
       
+      // Create batch for more efficient writes
+      const batch = writeBatch(db);
+      
       // Create new conversation
       const newConversationRef = doc(collection(db, 'conversations'));
-      await setDoc(newConversationRef, {
+      const now = Timestamp.now();
+      const conversationData = {
         participants: [user.uid, otherUserId],
         participantNames: {
           [user.uid]: userData.displayName || 'You',
@@ -151,15 +334,29 @@ export default function ChatScreen() {
         },
         lastMessage: {
           text: 'Start a conversation!',
-          timestamp: Timestamp.now()
+          timestamp: now
         },
-        lastMessageTimestamp: Timestamp.now(),
-        createdAt: Timestamp.now(),
+        lastMessageTimestamp: now,
+        createdAt: now,
         unreadCount: {
           [user.uid]: 0,
           [otherUserId]: 0
-        }
-      });
+        },
+        messageCount: 0,
+        currentBatchId: null
+      };
+      
+      // Set the conversation document
+      batch.set(newConversationRef, conversationData);
+      
+      // Commit the batch
+      await batch.commit();
+      
+      // Update cache
+      await AsyncStorage.setItem(cacheKey, JSON.stringify({
+        conversationId: newConversationRef.id,
+        timestamp: Date.now()
+      }));
       
       return newConversationRef.id;
     } catch (error) {
@@ -169,57 +366,52 @@ export default function ChatScreen() {
   };
   
   // Load an existing conversation
-  const loadExistingConversation = (id: string) => {
+  const loadExistingConversation = async (id: string) => {
     if (!user) return;
     
-    // Listen for conversation updates
-    const unsubscribeConversation = onSnapshot(doc(db, 'conversations', id), (docSnapshot) => {
-      if (docSnapshot.exists()) {
-        const conversationData = docSnapshot.data() as Conversation;
-        conversationData.id = docSnapshot.id;
-        setConversation(conversationData);
+    try {
+      // Set cached conversation ID
+      cachedConversationId.current = id;
+      
+      // Check cache for last read time
+      const lastReadKey = `lastRead_${id}_${user.uid}`;
+      const lastReadTimeStr = await AsyncStorage.getItem(lastReadKey);
+      const lastReadTime = lastReadTimeStr ? new Date(lastReadTimeStr) : null;
+      
+      // Listen for conversation updates - using onSnapshot only for real-time critical data
+      const unsub = onSnapshot(doc(db, 'conversations', id), (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const conversationData = docSnapshot.data() as Conversation;
+          conversationData.id = docSnapshot.id;
+          setConversation(conversationData);
+          
+          // Set other user's information
+          const otherParticipantId = conversationData.participants.find(p => p !== user.uid) || '';
+          setOtherUser({
+            id: otherParticipantId,
+            name: conversationData.participantNames[otherParticipantId] || 'User',
+            photo: conversationData.participantPhotos[otherParticipantId] || '',
+            matchTimestamp: conversationData.lastMessage?.timestamp
+          });
+          
+          // Mark messages as read if needed
+          const unreadCount = conversationData.unreadCount?.[user.uid] || 0;
+          if (unreadCount > 0) {
+            markMessagesAsRead(id);
+          }
+        }
         
-        // Set other user's information
-        const otherParticipantId = conversationData.participants.find(p => p !== user.uid) || '';
-        setOtherUser({
-          id: otherParticipantId,
-          name: conversationData.participantNames[otherParticipantId] || 'User',
-          photo: conversationData.participantPhotos[otherParticipantId] || ''
-        });
-      }
-      
-      setIsLoading(false);
-    });
-    
-    // Listen for messages
-    const messagesRef = collection(db, `conversations/${id}/messages`);
-    const q = query(messagesRef, orderBy('timestamp', 'asc'));
-    
-    const unsubscribeMessages = onSnapshot(q, (snapshot) => {
-      const messageList: Message[] = [];
-      
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        messageList.push({
-          id: doc.id,
-          text: data.text,
-          senderId: data.senderId,
-          senderName: data.senderName || '',
-          timestamp: data.timestamp,
-          read: data.read
-        });
+        // Only load messages if they haven't been loaded yet
+        if (messages.length === 0) {
+          loadMessages(id);
+        }
       });
       
-      setMessages(messageList);
-      
-      // Mark messages as read
-      markMessagesAsRead(id);
-    });
-    
-    return () => {
-      unsubscribeConversation();
-      unsubscribeMessages();
-    };
+      setUnsubscribeConversation(() => unsub);
+    } catch (error) {
+      console.error('Error loading conversation:', error);
+      setIsLoading(false);
+    }
   };
   
   // Mark messages as read
@@ -227,24 +419,14 @@ export default function ChatScreen() {
     if (!user) return;
     
     try {
-      // Update unread count to 0 for current user
+      // Just update the unread count in conversation document
       await updateDoc(doc(db, 'conversations', convId), {
         [`unreadCount.${user.uid}`]: 0
       });
       
-      // Mark all messages as read
-      const messagesRef = collection(db, `conversations/${convId}/messages`);
-      const q = query(
-        messagesRef, 
-        where('senderId', '!=', user.uid),
-        where('read', '==', false)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      
-      querySnapshot.forEach(async (docSnapshot) => {
-        await updateDoc(docSnapshot.ref, { read: true });
-      });
+      // Store last read time in AsyncStorage
+      const lastReadKey = `lastRead_${convId}_${user.uid}`;
+      await AsyncStorage.setItem(lastReadKey, new Date().toISOString());
     } catch (error) {
       console.error('Error marking messages as read:', error);
     }
@@ -255,34 +437,120 @@ export default function ChatScreen() {
     if (!user || !conversation || !messageText.trim()) return;
     
     try {
+      const messageText_cleaned = messageText.trim();
+      setMessageText(''); // Clear input field immediately for better UX
+      
       // Get the other participant
       const otherParticipant = conversation.participants.find(p => p !== user.uid) || '';
       
-      // Add message to conversation
-      const messagesRef = collection(db, `conversations/${conversation.id}/messages`);
-      const messageDoc = doc(messagesRef);
-      await setDoc(messageDoc, {
+      // Get or create a message batch
+      const now = Timestamp.now();
+      let currentBatchId = conversation.currentBatchId;
+      let messageCount = conversation.messageCount || 0;
+      let shouldCreateNewBatch = false;
+      
+      // Check if we need to create a new batch
+      if (!currentBatchId || messageCount % MESSAGE_BATCH_SIZE === 0) {
+        shouldCreateNewBatch = true;
+        currentBatchId = doc(collection(db, `conversations/${conversation.id}/messageBatches`)).id;
+      }
+      
+      // Create the message object
+      const newMessage: Message = {
         senderId: user.uid,
         senderName: conversation.participantNames[user.uid],
-        text: messageText.trim(),
-        timestamp: Timestamp.now(),
+        text: messageText_cleaned,
+        timestamp: now,
         read: false
+      };
+      
+      // Create a batch write for efficiency
+      const batch = writeBatch(db);
+      
+      // Update local state first for immediate feedback - before the async Firestore operation
+      addMessage(newMessage);
+      
+      // Update local conversation state to prevent reload
+      setConversation(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          currentBatchId: currentBatchId,
+          messageCount: (prev.messageCount || 0) + 1,
+          lastMessage: {
+            text: messageText_cleaned,
+            timestamp: now
+          },
+          lastMessageTimestamp: now,
+          unreadCount: {
+            ...prev.unreadCount,
+            [otherParticipant]: (prev.unreadCount?.[otherParticipant] || 0) + 1
+          }
+        };
       });
       
-      // Update conversation with last message
-      await updateDoc(doc(db, 'conversations', conversation.id), {
-        lastMessage: {
-          text: messageText.trim(),
-          timestamp: Timestamp.now()
-        },
-        lastMessageTimestamp: Timestamp.now(),
-        [`unreadCount.${otherParticipant}`]: (conversation.unreadCount?.[otherParticipant] || 0) + 1
-      });
+      if (shouldCreateNewBatch) {
+        // Create a new message batch
+        const batchRef = doc(db, `conversations/${conversation.id}/messageBatches`, currentBatchId);
+        batch.set(batchRef, {
+          messages: [newMessage],
+          startTime: now,
+          endTime: now
+        });
+        
+        // Update conversation with new batch ID
+        batch.update(doc(db, 'conversations', conversation.id), {
+          currentBatchId: currentBatchId,
+          messageCount: increment(1),
+          lastMessage: {
+            text: messageText_cleaned,
+            timestamp: now
+          },
+          lastMessageTimestamp: now,
+          [`unreadCount.${otherParticipant}`]: increment(1)
+        });
+      } else {
+        // Update existing batch
+        const batchRef = doc(db, `conversations/${conversation.id}/messageBatches`, currentBatchId);
+        batch.update(batchRef, {
+          messages: arrayUnion(newMessage),
+          endTime: now
+        });
+        
+        // Update conversation
+        batch.update(doc(db, 'conversations', conversation.id), {
+          messageCount: increment(1),
+          lastMessage: {
+            text: messageText_cleaned,
+            timestamp: now
+          },
+          lastMessageTimestamp: now,
+          [`unreadCount.${otherParticipant}`]: increment(1)
+        });
+      }
       
-      setMessageText('');
+      // Commit the batch in the background
+      await batch.commit();
     } catch (error) {
       console.error('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message. Please try again.');
     }
+  };
+  
+  // Check if match is less than 24 hours old
+  const isNewMatch = () => {
+    if (!otherUser?.matchTimestamp) return false;
+    
+    // Convert Firestore timestamp to Date if necessary
+    const matchDate = otherUser.matchTimestamp.toDate ? 
+      otherUser.matchTimestamp.toDate() : 
+      new Date(otherUser.matchTimestamp);
+    
+    const now = new Date();
+    const timeDiff = now.getTime() - matchDate.getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    return hoursDiff < 24;
   };
   
   // Format message timestamp
@@ -370,17 +638,51 @@ export default function ChatScreen() {
           style={styles.profileButton}
           onPress={() => {
             if (otherUser.id) {
-              router.push({
-                pathname: '/(common)/userProfile',
-                params: { userId: otherUser.id }
-              });
+              // Find match data from matches array
+              const matchData = matches.find(match => match.userId === otherUser.id);
+              
+              if (matchData) {
+                router.push({
+                  pathname: '/(common)/userProfile',
+                  params: { 
+                    userId: otherUser.id,
+                    matchLevel: matchData.matchLevel,
+                    commonShows: matchData.commonShowIds.join(','),
+                    favoriteShows: matchData.favoriteShowIds ? matchData.favoriteShowIds.join(',') : '',
+                    matchTimestamp: matchData.matchTimestamp ? 
+                      matchData.matchTimestamp.toDate ? 
+                      matchData.matchTimestamp.toDate().toISOString() : 
+                      matchData.matchTimestamp.toString() : ''
+                  }
+                });
+              } else {
+                router.push({
+                  pathname: '/(common)/userProfile',
+                  params: { userId: otherUser.id }
+                });
+              }
             }
           }}
         >
-          <Image 
-            source={{ uri: otherUser.photo || 'https://via.placeholder.com/40' }} 
-            style={styles.avatar} 
-          />
+          <View style={styles.avatarContainer}>
+            {isNewMatch() ? (
+              <View style={styles.avatarBlurContainer}>
+                <Image 
+                  source={{ uri: otherUser.photo || 'https://via.placeholder.com/40' }} 
+                  style={[styles.avatar,]}
+                  blurRadius={40}
+                />
+                <View style={styles.blurBadgeContainer}>
+                  <Text style={styles.blurBadgeText}>24h</Text>
+                </View>
+              </View>
+            ) : (
+              <Image 
+                source={{ uri: otherUser.photo || 'https://via.placeholder.com/40' }} 
+                style={styles.avatar} 
+              />
+            )}
+          </View>
           <Text style={styles.userName}>{otherUser.name}</Text>
         </TouchableOpacity>
       </View>
@@ -391,12 +693,31 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
+        {canLoadMore && (
+          <TouchableOpacity 
+            style={styles.loadMoreButton} 
+            onPress={loadMoreMessages}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore ? (
+              <ActivityIndicator size="small" color={COLORS.secondary} />
+            ) : (
+              <Text style={styles.loadMoreText}>Load earlier messages</Text>
+            )}
+          </TouchableOpacity>
+        )}
+        
         <FlatList
+          ref={flatListRef}
           data={messages}
-          keyExtractor={(item) => item.id || item.timestamp.toString()}
+          keyExtractor={(item, index) => item.id || `${item.timestamp.toString()}-${index}`}
           renderItem={renderMessage}
           contentContainerStyle={styles.messagesContainer}
+          onContentSizeChange={scrollToBottom}
+          onLayout={scrollToBottom}
           inverted={false}
+          onEndReached={loadMoreMessages}
+          onEndReachedThreshold={0.1}
         />
         
         {/* Message input */}
@@ -470,10 +791,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 8,
   },
-  avatar: {
+  avatarContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    position: 'relative',
+  },
+  avatar: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 20,
+  },
+  avatarBlurContainer: {
+    position: 'relative',
+    width: 40,
+    height: 40,
+    overflow: 'hidden',
+    borderRadius: 20,
+  },
+  blurBadgeContainer: {
+    paddingVertical: 2,
+    paddingHorizontal: 5,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  blurBadgeText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   userName: {
     fontSize: 18,
@@ -551,5 +896,16 @@ const styles = StyleSheet.create({
   },
   disabledSendButton: {
     opacity: 0.5,
+  },
+  loadMoreButton: {
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 20,
+    margin: 10,
+  },
+  loadMoreText: {
+    color: COLORS.secondary,
+    fontWeight: '600',
   },
 }); 

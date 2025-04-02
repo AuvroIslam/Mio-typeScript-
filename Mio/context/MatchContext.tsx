@@ -17,6 +17,7 @@ import {
   addDoc,
   deleteDoc
 } from 'firebase/firestore';
+import { AppState, AppStateStatus } from 'react-native';
 import { db } from '../config/firebaseConfig';
 import { useAuth } from './AuthContext';
 import { useFavorites } from './FavoritesContext';
@@ -43,6 +44,7 @@ export interface MatchData {
   profilePic: string;
   matchLevel: MatchLevel;
   commonShowIds: string[];
+  favoriteShowIds: string[];
   matchTimestamp: Timestamp;
   age?: number | string;
   location?: string;
@@ -102,6 +104,7 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
   const [searchCount, setSearchCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   
   // Load matches when the user changes
   useEffect(() => {
@@ -113,28 +116,54 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
     }
   }, [user]);
   
-  // Update cooldown timer
+  // Set up AppState listener to handle background/foreground transitions
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      // When app comes to foreground from background/inactive state
+      if (appState !== 'active' && nextAppState === 'active' && cooldownEndTime) {
+        // Recalculate remaining time based on absolute end time
+        updateTimeRemainingString();
+      }
+      setAppState(nextAppState);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [appState, cooldownEndTime]);
+
+  // Function to update time string based on absolute end time
+  const updateTimeRemainingString = useCallback(() => {
+    if (!cooldownEndTime) return;
+    
+    const now = new Date();
+    const remainingMs = cooldownEndTime.getTime() - now.getTime();
+    
+    if (remainingMs <= 0) {
+      setCooldownEndTime(null);
+      setRemainingTimeString('');
+    } else {
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      const minutes = Math.floor(remainingSeconds / 60);
+      const seconds = remainingSeconds % 60;
+      setRemainingTimeString(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
+    }
+  }, [cooldownEndTime]);
+  
+  // Update cooldown timer - now uses the updateTimeRemainingString function
   useEffect(() => {
     if (cooldownEndTime) {
+      // Initial call to set the correct string
+      updateTimeRemainingString();
+      
+      // Set up interval that updates while app is in foreground
       const interval = setInterval(() => {
-        const now = new Date();
-        const remainingMs = cooldownEndTime.getTime() - now.getTime();
-        
-        if (remainingMs <= 0) {
-          setCooldownEndTime(null);
-          setRemainingTimeString('');
-          clearInterval(interval);
-        } else {
-          const remainingSeconds = Math.ceil(remainingMs / 1000);
-          const minutes = Math.floor(remainingSeconds / 60);
-          const seconds = remainingSeconds % 60;
-          setRemainingTimeString(`${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`);
-        }
+        updateTimeRemainingString();
       }, 1000);
       
       return () => clearInterval(interval);
     }
-  }, [cooldownEndTime]);
+  }, [cooldownEndTime, updateTimeRemainingString]);
 
   // Format time helper function
   const formatTime = useCallback((seconds: number): string => {
@@ -214,7 +243,7 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
     
     try {
       // Increment search count
-      const newSearchCount = searchCount + 1;
+      let newSearchCount = searchCount + 1;
       
       // Calculate cooldown time based on search count
       let cooldownMinutes;
@@ -222,8 +251,13 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         cooldownMinutes = COOLDOWN_MINUTES.FIRST;
       } else if (newSearchCount === 2) {
         cooldownMinutes = COOLDOWN_MINUTES.SECOND;
-      } else {
+      } else if (newSearchCount === 3) {
         cooldownMinutes = COOLDOWN_MINUTES.THIRD;
+      } else {
+        // Reset search count to 1 to restart the cycle after the third search
+        // This ensures the pattern loops: 1min, 2min, 5min, 1min, 2min, 5min, etc.
+        cooldownMinutes = COOLDOWN_MINUTES.FIRST;
+        newSearchCount = 1;
       }
       
       // Calculate cooldown end time
@@ -520,6 +554,7 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
               location: matchUserProfile.location || '',
               profilePic: matchUserProfile.profilePic || '',
               commonShowIds: commonShowIds,
+              favoriteShowIds: matchUserFavorites,
               matchLevel: matchLevel,
               matchTimestamp: Timestamp.now()
             };
@@ -533,6 +568,7 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
               location: userProfile.location || '',
               profilePic: userProfile.profilePic || '',
               commonShowIds: commonShowIds,
+              favoriteShowIds: showIds,
               matchLevel: matchLevel,
               matchTimestamp: Timestamp.now()
             };

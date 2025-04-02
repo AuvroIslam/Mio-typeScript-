@@ -4,14 +4,13 @@
     "slug": "Mio",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/adaptive-icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "image": "./assets/images/background_splash.jpg",
+      "resizeMode": "contain"
     },
     "ios": {
       "supportsTablet": true,
@@ -21,14 +20,11 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#FFF8E8"
       },
       "package": "com.mioapp.social",
       "versionCode": 1,
       "permissions": [
-        "INTERNET",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
         "INTERNET",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE"
@@ -37,11 +33,18 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/adaptive-icon.png"
     },
-    "plugins": [
-      "expo-router",
-      "expo-splash-screen"
+      "plugins": [
+        "expo-router",
+        [
+          "@react-native-google-signin/google-signin",
+          {
+            "iosUrlScheme": "com.googleusercontent.apps._some_id_here_"
+          }
+        ],
+        
+    "expo-splash-screen"
     ],
     "experiments": {
       "typedRoutes": true
@@ -59,7 +62,12 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/18e84ef2-e63e-49ea-b001-d29ee68193e3"
+      "url": "https://u.expo.dev/18e84ef2-e63e-49ea-b001-d29ee68193e3",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "branch": "preview"
     }
+   
   }
 }

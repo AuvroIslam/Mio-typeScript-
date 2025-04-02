@@ -116,10 +116,10 @@ const FeedbackModal = ({
   
   if (type === 'error') {
     iconName = 'close-circle';
-    iconColor = '#FF6B6B';
+    iconColor = COLORS.darkestMaroon;
   } else if (type === 'warning') {
     iconName = 'alert-circle';
-    iconColor = '#FFA500';
+    iconColor = COLORS.darkMaroon;
   }
   
   return (
@@ -174,7 +174,7 @@ export default function ProfileScreen() {
 
   // Log favorites status when mounted or changed
   useEffect(() => {
-    console.log(`Profile: Favorites Context: Shows: ${userFavorites.shows.length}, Removals: ${removalCount}`);
+    // console.log(`Profile: Favorites Context: Shows: ${userFavorites.shows.length}, Removals: ${removalCount}`);
   }, [userFavorites, removalCount]);
 
   // Fetch user profile on mount and when userFavorites changes
@@ -201,7 +201,7 @@ export default function ProfileScreen() {
           fetchShowDetails();
         }
       } catch (error) {
-        console.error('Error fetching profile:', error);
+        // console.error('Error fetching profile:', error);
         setFeedbackModal({
           visible: true,
           message: 'Failed to load profile. Please try again.',
@@ -222,7 +222,7 @@ export default function ProfileScreen() {
     let shows: {[key: string]: ShowItem} = {};
     
     try {
-      console.log(`Profile: Fetching details for ${userFavorites.shows.length} favorite shows`);
+      // console.log(`Profile: Fetching details for ${userFavorites.shows.length} favorite shows`);
       
       // Fetch show details
       if (userFavorites.shows && userFavorites.shows.length > 0) {
@@ -251,15 +251,15 @@ export default function ProfileScreen() {
               };
             }
           } catch (error) {
-            console.error(`Error fetching show ${id}:`, error);
+            // console.error(`Error fetching show ${id}:`, error);
           }
         }));
       }
       
-      console.log(`Profile: Fetched details for ${Object.keys(shows).length} shows`);
+      // console.log(`Profile: Fetched details for ${Object.keys(shows).length} shows`);
       setFavoriteShows(shows);
     } catch (error) {
-      console.error('Error fetching show details:', error);
+      // console.error('Error fetching show details:', error);
     }
   };
 
@@ -274,7 +274,7 @@ export default function ProfileScreen() {
             await logout();
             router.replace("/(auth)/sign-in");
           } catch (error) {
-            console.error("Error logging out:", error);
+            // console.error("Error logging out:", error);
             setFeedbackModal({
               visible: true,
               message: 'Failed to log out. Please try again.',
@@ -293,7 +293,7 @@ export default function ProfileScreen() {
     const show = favoriteShows[showId];
     
     if (!show) {
-      console.error('Show not found in favorites');
+      // console.error('Show not found in favorites');
       return;
     }
     
@@ -323,7 +323,7 @@ export default function ProfileScreen() {
         show,
         // Success callback
         () => {
-          console.log(`Profile: Successfully removed ${show.title} from favorites`);
+          // console.log(`Profile: Successfully removed ${show.title} from favorites`);
           
           // Update local state of favorite shows - will be refreshed on next render
           const newFavoriteShows = { ...favoriteShows };
@@ -348,7 +348,7 @@ export default function ProfileScreen() {
         },
         // Error callback
         () => {
-          console.error(`Profile: Failed to remove ${show.title} from favorites`);
+          // console.error(`Profile: Failed to remove ${show.title} from favorites`);
           setFeedbackModal({
             visible: true,
             message: 'Failed to remove show. Please try again.',
@@ -357,7 +357,7 @@ export default function ProfileScreen() {
         },
         // Cooldown callback
         (cooldownTime) => {
-          console.warn(`Profile: Cooldown active (${cooldownTime}s) when trying to remove ${show.title}`);
+          // console.warn(`Profile: Cooldown active (${cooldownTime}s) when trying to remove ${show.title}`);
           const minutes = Math.floor(cooldownTime / 60);
           const seconds = cooldownTime % 60;
           setFeedbackModal({
@@ -368,7 +368,7 @@ export default function ProfileScreen() {
         }
       );
     } catch (error) {
-      console.error("Error removing show:", error);
+      // console.error("Error removing show:", error);
       setFeedbackModal({
         visible: true,
         message: 'Failed to remove show. Please try again.',
@@ -737,7 +737,7 @@ export default function ProfileScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmModalContent}>
-            <Ionicons name="alert-circle-outline" size={60} color="#FFA500" />
+            <Ionicons name="alert-circle-outline" size={60} color={COLORS.darkMaroon} />
             <Text style={styles.confirmTitle}>Remove Favorite?</Text>
             <Text style={styles.confirmMessage}>
               {removalCount === MAX_WEEKLY_REMOVALS - 1 
@@ -905,8 +905,8 @@ const styles = StyleSheet.create({
         elevation: 3,
       },
     }),
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
+    borderWidth: 0.5,
+    borderColor: COLORS.darkestMaroon,
     overflow: 'hidden',
   },
   cardHeader: {
@@ -1099,7 +1099,7 @@ const styles = StyleSheet.create({
     right: 8,
     width: 24,
     height: 24,
-    backgroundColor: 'rgba(255,0,0,0.6)',
+    backgroundColor: COLORS.darkestMaroon,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1187,7 +1187,7 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
-    backgroundColor: COLORS.secondary,
+    backgroundColor: COLORS.maroon,
     borderRadius: 12,
     padding: 16,
     flexDirection: 'row',
@@ -1207,7 +1207,7 @@ const styles = StyleSheet.create({
     }),
   },
   logoutButton: {
-    backgroundColor: '#FF6B6B',
+    backgroundColor: '#a60c0c',
   },
   actionButtonText: {
     color: '#FFF',
@@ -1227,11 +1227,13 @@ const styles = StyleSheet.create({
     width: width * 0.8,
     padding: 24,
     alignItems: 'center',
+    borderWidth: 0.5,
+    borderColor: COLORS.darkestMaroon,
   },
   confirmTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333',
+    color: COLORS.darkMaroon,
     marginTop: 12,
   },
   confirmMessage: {
@@ -1259,10 +1261,10 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#555',
+    color: COLORS.darkMaroon,
   },
   removeConfirmButton: {
-    backgroundColor: '#FF6B6B',
+    backgroundColor: COLORS.darkestMaroon,
     marginLeft: 8,
   },
   removeConfirmButtonText: {

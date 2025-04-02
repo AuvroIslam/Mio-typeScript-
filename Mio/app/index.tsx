@@ -1,17 +1,38 @@
-import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native'
+import { View, Text, StyleSheet, ImageBackground, Image } from 'react-native'
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { ScrollView, GestureHandlerRootView } from 'react-native-gesture-handler'
-import onboardingImage from '../assets/images/onboardLogo.png'
-import logo from '../assets/images/mainLogo.png'
+import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import backgroundImage from '../assets/images/background_splash.jpg'
 import { CustomButton, Loader } from "../components";
 import { useAuth } from '../context/AuthContext';
+import { COLORS } from '../constants/Colors';
+import Toast from 'react-native-toast-message';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function App() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const [appLoading, setAppLoading] = useState(true);
+  const [comingFromAuth, setComingFromAuth] = useState(false);
+
+  // When this component mounts, check if there's a flag indicating we came from a failed auth attempt
+  useEffect(() => {
+    const checkAuthError = async () => {
+      try {
+        const authError = await AsyncStorage.getItem('auth_error');
+        if (authError === 'true') {
+          setComingFromAuth(true);
+          // Clear the flag so future navigations work properly
+          await AsyncStorage.removeItem('auth_error');
+        }
+      } catch (e) {
+        console.log('Could not check AsyncStorage:', e);
+      }
+    };
+    
+    checkAuthError();
+  }, []);
 
   useEffect(() => {
     // Check authentication state and redirect accordingly
@@ -19,23 +40,29 @@ export default function App() {
       const timer = setTimeout(() => {
         if (user) {
           // User is authenticated
-          if (user.hasProfile) {
-            // User has a profile, go to main app
+          if (!user.emailVerified) {
+            // Email not verified, go to verification page
+            router.replace("/(auth)/email-verification");
+          } else if (user.hasProfile) {
+            // User has a profile and is verified, go to main app
             router.replace("/(tabs)/home");
           } else {
-            // User is authenticated but needs to complete profile
+            // User is authenticated and verified but needs to complete profile
             router.replace("/(registration)/registration");
           }
+        } else if (!comingFromAuth) {
+          // If not coming from a failed auth attempt, proceed normally
+          // This prevents redirection loops with the sign-in page
         }
         setAppLoading(false);
       }, 2000); // Add a small delay for better UX
       
       return () => clearTimeout(timer);
     }
-  }, [isLoading, user, router]);
+  }, [isLoading, user, router, comingFromAuth]);
 
   const handleEmailSignIn = () => {
-    router.push('/sign-in');
+    router.push('/sign-up');
   };
 
   if (isLoading || appLoading) {
@@ -44,58 +71,53 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaView className='flex-1 bg-[#FFCCE1] h-full'>
-        <ScrollView
-          contentContainerStyle={{
-            height: "100%",
-          }}
-        >
-          <View className="w-full flex justify-center items-center h-full px-4">
-            <View className='w-full justify-center items-center mb-4 '>
-              <Image
-                source={onboardingImage}
-                style={{ width: 130, height: 84 }}
-                resizeMode="contain"
-              />
-              <Text className='text-4xl text-[#8174A0] font-poppins-extrabold mt-2'>
-                Mio
-              </Text>
-            </View>
-          
-            <Image
-              source={logo}
-              style={{ maxWidth: 380, width: '100%', height: 298 }}
-              resizeMode="contain"
-            />
-
-            <View className="relative mt-5">
-              <Text className="text-3xl text-white font-poppins-bold text-center">
-              Like Cherry Blossoms,{"\n"}
-              Friendships Bloom here
-              </Text>
-            </View>
-
+      <ImageBackground source={backgroundImage} style={styles.backgroundImage}>
+        <SafeAreaView style={styles.container}>
+          <View style={styles.contentContainer}>
             {!user && (
+              
               <View style={styles.buttonContainer}>
+                
                 <CustomButton
                   title="Continue with Email"
                   handlePress={handleEmailSignIn}
                   containerStyles="mt-7"
+                  textStyles="font-pacifico"
                 />
               </View>
             )}
           </View>
-        </ScrollView>
-      </SafeAreaView>
+        </SafeAreaView>
+      </ImageBackground>
     </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
+  backgroundImage: {
+    flex: 1,
+    
+  },
+  container: {
+    flex: 1,
+  },
+  contentContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 80,
+  },
   buttonContainer: {
     width: '100%',
     alignItems: 'center',
-    marginTop: 20,
+    marginBottom: 20,
+    marginTop: -40,
+  },
+  
+  googleIcon: {
+    width: 20,
+    height: 20,
+    marginRight: 10
   }
 });
-

@@ -5,7 +5,8 @@ import {
   StyleSheet, 
   TouchableOpacity, 
   ScrollView,
-  Alert
+  Alert,
+  StatusBar
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +15,7 @@ import { useRegistration } from '../../context/RegistrationContext';
 import { useAuth } from '../../context/AuthContext';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
+import { COLORS } from '../../constants/Colors';
 
 const AdditionalInfoStep = () => {
   const router = useRouter();
@@ -82,122 +84,126 @@ const AdditionalInfoStep = () => {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Almost Done!</Text>
-      <Text style={styles.subtitle}>Tell us about your interests (optional)</Text>
+    <>
+      <StatusBar backgroundColor="white" barStyle="dark-content" />
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <Text style={styles.title}>Almost Done!</Text>
+        <Text style={styles.subtitle}>Tell us about your interests (optional)</Text>
 
-      <View style={styles.sectionTitle}>
-        <Text style={styles.label}>Relationship Status</Text>
-      </View>
-      <View style={styles.optionsContainer}>
-        <TouchableOpacity
-          style={[
-            styles.option,
-            registrationData.relationshipStatus === 'single' && styles.selectedOption,
-          ]}
-          onPress={() => updateField('relationshipStatus', 'single')}
-        >
-          <Text
+        <View style={styles.sectionTitle}>
+          <Text style={styles.label}>Relationship Status</Text>
+        </View>
+        <View style={styles.optionsContainer}>
+          <TouchableOpacity
             style={[
-              styles.optionText,
-              registrationData.relationshipStatus === 'single' && styles.selectedOptionText,
+              styles.option,
+              registrationData.relationshipStatus === 'single' && styles.selectedOption,
             ]}
+            onPress={() => updateField('relationshipStatus', 'single')}
           >
-            Single
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.option,
-            registrationData.relationshipStatus === 'in a relationship' && styles.selectedOption,
-          ]}
-          onPress={() => updateField('relationshipStatus', 'in a relationship')}
-        >
-          <Text
+            <Text
+              style={[
+                styles.optionText,
+                registrationData.relationshipStatus === 'single' && styles.selectedOptionText,
+              ]}
+            >
+              Single
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[
-              styles.optionText,
-              registrationData.relationshipStatus === 'in a relationship' && styles.selectedOptionText,
+              styles.option,
+              registrationData.relationshipStatus === 'in a relationship' && styles.selectedOption,
             ]}
+            onPress={() => updateField('relationshipStatus', 'in a relationship')}
           >
-            In a Relationship
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.option,
-            registrationData.relationshipStatus === 'married' && styles.selectedOption,
-          ]}
-          onPress={() => updateField('relationshipStatus', 'married')}
-        >
-          <Text
+            <Text
+              style={[
+                styles.optionText,
+                registrationData.relationshipStatus === 'in a relationship' && styles.selectedOptionText,
+              ]}
+            >
+              In a Relationship
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[
-              styles.optionText,
-              registrationData.relationshipStatus === 'married' && styles.selectedOptionText,
+              styles.option,
+              registrationData.relationshipStatus === 'married' && styles.selectedOption,
             ]}
+            onPress={() => updateField('relationshipStatus', 'married')}
           >
-            Married
-          </Text>
-        </TouchableOpacity>
-      </View>
+            <Text
+              style={[
+                styles.optionText,
+                registrationData.relationshipStatus === 'married' && styles.selectedOptionText,
+              ]}
+            >
+              Married
+            </Text>
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.formSection}>
-        <InputField
-          label="What is your favorite anime? (optional)"
-          value={registrationData.favoriteAnime}
-          onChangeText={(text) => updateField('favoriteAnime', text)}
-          placeholder="Share your favorite anime"
-          error={errors.favoriteAnime}
-        />
+        <View style={styles.formSection}>
+          <InputField
+            label="What is your favorite anime? (optional)"
+            value={registrationData.favoriteAnime}
+            onChangeText={(text) => updateField('favoriteAnime', text)}
+            placeholder="Share your favorite anime"
+            error={errors.favoriteAnime}
+          />
 
-        <InputField
-          label="What is your favorite K-drama? (optional)"
-          value={registrationData.favoriteKdrama}
-          onChangeText={(text) => updateField('favoriteKdrama', text)}
-          placeholder="Share your favorite K-drama"
-          error={errors.favoriteKdrama}
-        />
+          <InputField
+            label="What is your favorite K-drama? (optional)"
+            value={registrationData.favoriteKdrama}
+            onChangeText={(text) => updateField('favoriteKdrama', text)}
+            placeholder="Share your favorite K-drama"
+            error={errors.favoriteKdrama}
+          />
 
-        <InputField
-          label="What is your favorite movie? (optional)"
-          value={registrationData.favoriteMovie}
-          onChangeText={(text) => updateField('favoriteMovie', text)}
-          placeholder="Your favorite movie"
-          error={errors.favoriteMovie}
-        />
+          <InputField
+            label="What is your favorite movie? (optional)"
+            value={registrationData.favoriteMovie}
+            onChangeText={(text) => updateField('favoriteMovie', text)}
+            placeholder="Your favorite movie"
+            error={errors.favoriteMovie}
+          />
 
-        <InputField
-          label="What is your favorite band/music? (optional)"
-          value={registrationData.favoriteBand}
-          onChangeText={(text) => updateField('favoriteBand', text)}
-          placeholder="Your music preference"
-          error={errors.favoriteBand}
-        />
-      </View>
+          <InputField
+            label="What is your favorite band/music? (optional)"
+            value={registrationData.favoriteBand}
+            onChangeText={(text) => updateField('favoriteBand', text)}
+            placeholder="Your music preference"
+            error={errors.favoriteBand}
+          />
+        </View>
 
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity style={styles.backButton} onPress={prevStep}>
-          <Text style={styles.backButtonText}>Back</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.submitButton, isSubmitting && styles.disabledButton]} 
-          onPress={handleSubmit}
-          disabled={isSubmitting}
-        >
-          {isSubmitting ? (
-            <Text style={styles.submitButtonText}>Saving...</Text>
-          ) : (
-            <Text style={styles.submitButtonText}>Complete Profile</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity style={styles.backButton} onPress={prevStep}>
+            <Text style={styles.backButtonText}>Back</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.submitButton, isSubmitting && styles.disabledButton]} 
+            onPress={handleSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <Text style={styles.submitButtonText}>Saving...</Text>
+            ) : (
+              <Text style={styles.submitButtonText}>Complete Profile</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: COLORS.white,
   },
   content: {
     padding: 20,
@@ -205,7 +211,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#8174A0',
+    color: COLORS.darkestMaroon,
     marginBottom: 8,
   },
   subtitle: {
@@ -220,7 +226,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#8174A0',
+    color: COLORS.darkMaroon,
   },
   optionsContainer: {
     flexDirection: 'row',
@@ -229,23 +235,23 @@ const styles = StyleSheet.create({
   },
   option: {
     borderWidth: 1,
-    borderColor: '#FFCCE1',
+    borderColor: COLORS.darkMaroon,
     borderRadius: 20,
     paddingVertical: 10,
     paddingHorizontal: 20,
     marginRight: 10,
     marginBottom: 10,
-    backgroundColor: '#FFF5D7',
+    backgroundColor: 'white',
   },
   selectedOption: {
-    backgroundColor: '#8174A0',
-    borderColor: '#8174A0',
+    backgroundColor: COLORS.darkMaroon,
+    borderColor: COLORS.darkestMaroon,
   },
   optionText: {
-    color: '#8174A0',
+    color: COLORS.maroon,
   },
   selectedOptionText: {
-    color: '#FFF',
+    color: COLORS.white,
   },
   formSection: {
     marginBottom: 24,
@@ -257,22 +263,22 @@ const styles = StyleSheet.create({
   },
   backButton: {
     flex: 1,
-    backgroundColor: '#FFF5D7',
+    backgroundColor: COLORS.maroon,
     borderRadius: 20,
     paddingVertical: 15,
     alignItems: 'center',
     marginRight: 8,
     borderWidth: 1,
-    borderColor: '#FFCCE1',
+    borderColor: COLORS.darkestMaroon,
   },
   backButtonText: {
-    color: '#8174A0',
+    color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },
   submitButton: {
     flex: 2,
-    backgroundColor: '#8174A0',
+    backgroundColor: COLORS.darkestMaroon,
     borderRadius: 20,
     paddingVertical: 15,
     alignItems: 'center',
@@ -282,7 +288,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   submitButtonText: {
-    color: '#FFF',
+    color: COLORS.white,
     fontSize: 16,
     fontWeight: '600',
   },

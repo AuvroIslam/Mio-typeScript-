@@ -3,7 +3,10 @@ import {
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
-  signOut
+  signOut,
+  sendEmailVerification,
+  reload,
+  sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebaseConfig';
@@ -14,6 +17,8 @@ interface User {
   email: string | null;
   displayName?: string | null;
   hasProfile?: boolean;
+  isAdmin?: boolean;
+  emailVerified?: boolean;
 }
 
 interface AuthContextType {
@@ -21,8 +26,11 @@ interface AuthContextType {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
-  logout: () => Promise<void>;
+  logout: () => Promise<boolean>;
   setUserHasProfile: (hasProfile: boolean) => void;
+  sendVerification: () => Promise<void>;
+  refreshUserState: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -39,28 +47,55 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Function to update user state from Firebase user
+  const updateUserState = useCallback(async (firebaseUser: any) => {
+    if (firebaseUser) {
+      // Check if user has profile data
+      const userRef = doc(db, 'users', firebaseUser.uid);
+      const userDoc = await getDoc(userRef);
+      const hasProfile = userDoc.exists() && userDoc.data().profileCompleted;
+      
+      // Check if user is an admin (based on email)
+      const isAdmin = firebaseUser.email === 'oitijya2002@gmail.com';
+
+      setUser({
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        displayName: firebaseUser.displayName,
+        hasProfile,
+        isAdmin,
+        emailVerified: firebaseUser.emailVerified
+      });
+    } else {
+      setUser(null);
+    }
+  }, []);
+
+  // Manually refresh the user state
+  const refreshUserState = useCallback(async () => {
+    if (auth.currentUser) {
+      try {
+        // Reload the Firebase user to get the latest data
+        await reload(auth.currentUser);
+        // Update our user state with the refreshed Firebase user
+        await updateUserState(auth.currentUser);
+      } catch (error) {
+        console.error("Error refreshing user state:", error);
+      }
+    }
+  }, [updateUserState]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // Check if user has profile data
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        const userDoc = await getDoc(userRef);
-        const hasProfile = userDoc.exists() && userDoc.data().profileCompleted;
-
-        setUser({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName,
-          hasProfile
-        });
-      } else {
-        setUser(null);
+      try {
+        await updateUserState(firebaseUser);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [updateUserState]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
@@ -78,6 +113,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       // First create the authentication user
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // Send verification email
+      await sendEmailVerification(userCredential.user);
       
       try {
         // Then try to create the user document in Firestore
@@ -100,9 +138,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = useCallback(async () => {
     setIsLoading(true);
     try {
+      // Just sign out without any navigation
       await signOut(auth);
+      return true; // Return success status
     } catch (error) {
-      throw error;
+      console.error("Logout error:", error);
+      return false; // Return failure status
     } finally {
       setIsLoading(false);
     }
@@ -114,14 +155,36 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [user]);
 
+  const sendVerification = useCallback(async () => {
+    if (auth.currentUser) {
+      try {
+        await sendEmailVerification(auth.currentUser);
+      } catch (error) {
+        throw error;
+      }
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
+    } catch (error) {
+      // Re-throw the error to be handled in the component
+      throw error;
+    }
+  }, []);
+
   const value = useMemo(() => ({
     user,
     isLoading,
     signIn,
     signUp,
     logout,
-    setUserHasProfile
-  }), [user, isLoading, signIn, signUp, logout, setUserHasProfile]);
+    setUserHasProfile,
+    sendVerification,
+    refreshUserState,
+    resetPassword
+  }), [user, isLoading, signIn, signUp, logout, setUserHasProfile, sendVerification, refreshUserState, resetPassword]);
 
   return (
     <AuthContext.Provider value={value}>

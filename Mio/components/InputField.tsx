@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, TextInput, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import { Colors, COLORS } from '../constants/Colors';
 
 interface InputFieldProps {
   label: string;
@@ -50,7 +51,7 @@ const InputField: React.FC<InputFieldProps> = ({
             <MaterialIcons
               name={isPasswordVisible ? 'visibility' : 'visibility-off'}
               size={24}
-              color="#8174A0"
+              color={COLORS.maroon}
             />
           </TouchableOpacity>
         )}
@@ -63,21 +64,22 @@ const InputField: React.FC<InputFieldProps> = ({
 const styles = StyleSheet.create({
   container: {
     width: '100%',
-    marginBottom: 16,
+    marginBottom: 10,
   },
   label: {
+    marginLeft:10,
     marginBottom: 8,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
-    color: '#8174A0',
+    color: COLORS.darkestMaroon,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#FFCCE1',
-    borderRadius: 8,
-    backgroundColor: '#FFF5D7',
+    borderColor: COLORS.darkMaroon,
+    borderRadius: 24,
+    backgroundColor: 'white',
     paddingHorizontal: 12,
     height: 50,
   },

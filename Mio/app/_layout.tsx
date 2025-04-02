@@ -14,6 +14,8 @@ import { MatchContextProvider } from '../context/MatchContext';
 import Toast from 'react-native-toast-message';
 import { toastConfig } from '../components';
 import { useColorScheme } from '../hooks/useColorScheme';
+import * as Updates from 'expo-updates';
+import { Alert } from 'react-native';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -33,7 +35,32 @@ const RootLayout = () => {
     "Poppins-Regular": require("../assets/fonts/Poppins-Regular.ttf"),
     "Poppins-SemiBold": require("../assets/fonts/Poppins-SemiBold.ttf"),
     "Poppins-Thin": require("../assets/fonts/Poppins-Thin.ttf"),
+    "Pacifico-Regular": require("../assets/fonts/Pacifico.ttf"),
   });
+
+  // Check for updates when the app starts
+  useEffect(() => {
+    const checkForUpdates = async () => {
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          Alert.alert(
+            "Update Available",
+            "A new update is available. Restart the app to apply changes.",
+            [
+              { text: "Later", style: "cancel" },
+              { text: "Restart", onPress: async () => await Updates.reloadAsync() }
+            ]
+          );
+        }
+      } catch (error) {
+        console.log('Error checking for updates:', error);
+      }
+    };
+
+    checkForUpdates();
+  }, []);
 
   useEffect(() => {
     if (error) throw error;

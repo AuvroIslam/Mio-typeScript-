@@ -12,7 +12,6 @@ const UPLOAD_PRESET = 'mioImage';
 // Function to upload an image to Cloudinary using unsigned upload with preset
 export const uploadImage = async (localUri: string): Promise<string> => {
   try {
-    console.log('Starting image upload to Cloudinary...');
     // Create form data for upload
     const formData = new FormData();
     
@@ -30,8 +29,6 @@ export const uploadImage = async (localUri: string): Promise<string> => {
       ? `file://${localUri}` 
       : localUri;
     
-    console.log(`Preparing file: ${fileName}, URI: ${fileUri}`);
-    
     // Append file to formData
     formData.append('file', {
       uri: fileUri,
@@ -42,8 +39,6 @@ export const uploadImage = async (localUri: string): Promise<string> => {
     formData.append('upload_preset', UPLOAD_PRESET);
     formData.append('folder', 'mio_app_profiles');
     
-    console.log('Form data prepared, sending to Cloudinary...');
-    
     // Upload to Cloudinary using fetch
     const uploadResponse = await fetch(CLOUDINARY_UPLOAD_URL, {
       method: 'POST',
@@ -53,18 +48,14 @@ export const uploadImage = async (localUri: string): Promise<string> => {
       },
     });
     
-    console.log('Response received from Cloudinary');
     const uploadResult = await uploadResponse.json();
     
     if (uploadResponse.ok) {
-      console.log('Upload successful, URL:', uploadResult.secure_url);
       return uploadResult.secure_url;
     } else {
-      console.error('Upload failed:', uploadResult.error);
       throw new Error(uploadResult.error?.message || 'Upload failed');
     }
   } catch (error) {
-    console.error('Error uploading to Cloudinary:', error);
     throw error;
   }
 };

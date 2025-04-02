@@ -14,6 +14,7 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { COLORS } from '../../constants/Colors';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
@@ -36,6 +37,7 @@ interface ProfileData {
   favoriteBand?: string;
   favoriteAnime?: string;
   favoriteKdrama?: string;
+  additionalPics?: string[];
 }
 
 interface CommonShow {
@@ -43,6 +45,7 @@ interface CommonShow {
   title: string;
   posterPath: string;
   type: 'anime' | 'kdrama';
+  isMutual: boolean;
 }
 
 export default function UserProfileScreen() {
@@ -50,16 +53,31 @@ export default function UserProfileScreen() {
   const userId = params.userId as string;
   const matchLevel = params.matchLevel as MatchLevel;
   const commonShowIds = params.commonShows ? (params.commonShows as string).split(',') : [];
+  const favoriteShowIds = params.favoriteShows ? (params.favoriteShows as string).split(',') : [];
+  const matchTimestamp = params.matchTimestamp ? new Date(params.matchTimestamp as string) : null;
   
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [commonShows, setCommonShows] = useState<CommonShow[]>([]);
+  const [allShows, setAllShows] = useState<CommonShow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Check if match is less than 24 hours old
+  const isNewMatch = () => {
+    if (!matchTimestamp) return false;
+    
+    const now = new Date();
+    const timeDiff = now.getTime() - matchTimestamp.getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    return hoursDiff < 24;
+  };
+  
+  const shouldBlurImages = isNewMatch();
   
   useEffect(() => {
     if (userId) {
       fetchUserProfile();
-      fetchCommonShows();
+      fetchAllShows();
     }
   }, [userId]);
   
@@ -80,14 +98,14 @@ export default function UserProfileScreen() {
     }
   };
   
-  const fetchCommonShows = async () => {
-    if (!commonShowIds.length) return;
+  const fetchAllShows = async () => {
+    if (!favoriteShowIds.length) return;
     
     try {
       const TMDB_API_KEY = 'b2b68cd65cf02c8da091b2857084bd4d'; 
       const shows: CommonShow[] = [];
       
-      for (const showId of commonShowIds) {
+      for (const showId of favoriteShowIds) {
         const response = await fetch(
           `https://api.themoviedb.org/3/tv/${showId}?api_key=${TMDB_API_KEY}&language=en-US`
         );
@@ -104,14 +122,15 @@ export default function UserProfileScreen() {
             id: showId,
             title: data.name,
             posterPath: data.poster_path,
-            type: isAnime ? 'anime' : 'kdrama'
+            type: isAnime ? 'anime' : 'kdrama',
+            isMutual: commonShowIds.includes(showId)
           });
         }
       }
       
-      setCommonShows(shows);
+      setAllShows(shows);
     } catch (error) {
-      console.error('Error fetching common shows:', error);
+      console.error('Error fetching shows:', error);
     }
   };
   
@@ -172,10 +191,20 @@ export default function UserProfileScreen() {
       <ScrollView style={styles.scrollView}>
         {/* Header with profile image */}
         <View style={styles.headerContainer}>
-          <Image 
-            source={{ uri: profile.profilePic }} 
-            style={styles.profileImage} 
-          />
+          {shouldBlurImages ? (
+            <View style={styles.blurImageContainer}>
+              <Image 
+                source={{ uri: profile.profilePic }}
+                style={[styles.profileImage, ]}
+                blurRadius={40}
+              />
+            </View>
+          ) : (
+            <Image 
+              source={{ uri: profile.profilePic }} 
+              style={styles.profileImage} 
+            />
+          )}
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.8)']}
             style={styles.profileGradient}
@@ -265,29 +294,37 @@ export default function UserProfileScreen() {
             </View>
           </View>
           
-          {/* Common Shows */}
+          {/* Favorite Shows */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="heart" size={20} color={COLORS.secondary} />
-              <Text style={styles.sectionTitle}>Shows You Both Love</Text>
+              <Text style={styles.sectionTitle}>Favorite Shows</Text>
             </View>
             
-            {commonShows.length > 0 ? (
+            {allShows.length > 0 ? (
               <ScrollView 
                 horizontal 
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.commonShowsContainer}
               >
-                {commonShows.map(show => (
+                {allShows.map(show => (
                   <View key={show.id} style={styles.showCard}>
-                    <Image 
-                      source={{ 
-                        uri: show.posterPath 
-                          ? `${TMDB_IMAGE_BASE_URL}w185${show.posterPath}` 
-                          : 'https://via.placeholder.com/185x278?text=No+Image'
-                      }} 
-                      style={styles.showImage} 
-                    />
+                    <View style={styles.showImageContainer}>
+                      <Image 
+                        source={{ 
+                          uri: show.posterPath 
+                            ? `${TMDB_IMAGE_BASE_URL}w185${show.posterPath}` 
+                            : 'https://via.placeholder.com/185x278?text=No+Image'
+                        }} 
+                        style={styles.showImage} 
+                      />
+                      {show.isMutual && (
+                        <View style={styles.mutualBadge}>
+                          <Ionicons name="heart" size={12} color="#FFF" />
+                          <Text style={styles.mutualBadgeText}>Both Like</Text>
+                        </View>
+                      )}
+                    </View>
                     <View 
                       style={[
                         styles.showTypeBadge,
@@ -360,6 +397,41 @@ export default function UserProfileScreen() {
               <Text style={styles.noContentText}>No other interests shared</Text>
             )}
           </View>
+          
+          {/* Photos Gallery */}
+          {profile.additionalPics && profile.additionalPics.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="images" size={20} color={COLORS.secondary} />
+                <Text style={styles.sectionTitle}>Photos</Text>
+              </View>
+              
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.photosContainer}
+              >
+                {profile.additionalPics.map((photo, index) => (
+                  <View key={index} style={styles.photoWrapper}>
+                    {shouldBlurImages ? (
+                      <View style={styles.photoBlurContainer}>
+                        <Image 
+                          source={{ uri: photo }}
+                          style={styles.additionalPhoto}
+                          blurRadius={40}
+                        />
+                      </View>
+                    ) : (
+                      <Image 
+                        source={{ uri: photo }} 
+                        style={styles.additionalPhoto}
+                      />
+                    )}
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -448,13 +520,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,204,225,0.9)',
+    backgroundColor: COLORS.primary,
   },
   superMatchBadge: {
-    backgroundColor: 'rgba(255,215,0,0.9)',
+    backgroundColor: COLORS.secondary,
   },
   nomatchBadge: {
-    backgroundColor: 'rgba(150,150,150,0.9)',
+    backgroundColor: COLORS.maroon,
   },
   matchBadgeText: {
     marginLeft: 4,
@@ -557,7 +629,7 @@ const styles = StyleSheet.create({
   },
   infoValue: {
     fontSize: 16,
-    color: '#333',
+    color: COLORS.maroon,
     fontWeight: '500',
   },
   commonShowsContainer: {
@@ -568,11 +640,16 @@ const styles = StyleSheet.create({
     width: 120,
     marginRight: 16,
   },
+  showImageContainer: {
+    position: 'relative',
+  },
   showImage: {
     width: 120,
     height: 180,
     borderRadius: 8,
     backgroundColor: '#F0F0F0',
+    borderWidth: .5,
+    borderColor: COLORS.maroon,
   },
   showTypeBadge: {
     position: 'absolute',
@@ -588,10 +665,27 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.text.primary,
   },
+  mutualBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    backgroundColor: COLORS.primary,
+  },
+  mutualBadgeText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#FFF',
+    marginLeft: 2,
+  },
   showTitle: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
+    fontWeight: '800',
+    color: COLORS.darkestMaroon,
     marginTop: 8,
     textAlign: 'center',
   },
@@ -644,5 +738,45 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginLeft: 6,
     fontSize: 15,
+  },
+  blurImageContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden',
+  },
+  photosContainer: {
+    paddingVertical: 12,
+    paddingRight: 16,
+  },
+  photoWrapper: {
+    marginLeft: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  photoBlurContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 12,
+  },
+  additionalPhoto: {
+    width: width * 0.4,
+    height: width * 0.4,
+    borderRadius: 12,
   },
 }); 

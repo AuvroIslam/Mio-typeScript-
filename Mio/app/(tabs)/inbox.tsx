@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 import { 
   collection, 
   query, 
@@ -55,6 +56,7 @@ interface MatchData {
   userId: string;
   displayName: string;
   profilePic: string;
+  matchTimestamp?: any;
   // Add other properties as needed
 }
 
@@ -82,13 +84,24 @@ export default function InboxScreen() {
     
     // Get user's matches
     const fetchMatches = async () => {
+      if (!user) return;
+      
       try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists() && userDoc.data().matches) {
-          setMatches(userDoc.data().matches || []);
-        }
+        const matchesRef = collection(db, 'matches', user.uid, 'userMatches');
+        const querySnapshot = await getDocs(matchesRef);
+        
+        const matchesList: MatchData[] = [];
+        querySnapshot.forEach((doc) => {
+          const matchData = doc.data() as MatchData;
+          matchesList.push({
+            ...matchData,
+            userId: doc.id
+          });
+        });
+        
+        setMatches(matchesList);
       } catch (error) {
-        console.error('Error fetching matches:', error);
+        
       }
     };
     
@@ -111,9 +124,6 @@ export default function InboxScreen() {
           const otherParticipant = data.participants.find((p: string) => p !== user.uid);
           
           if (otherParticipant) {
-            // Log data for debugging
-            console.log(`Processing conversation ${docSnapshot.id}`);
-            
             // Safely extract and normalize necessary data
             const participantNames = data.participantNames || {};
             const participantPhotos = data.participantPhotos || {};
@@ -143,21 +153,21 @@ export default function InboxScreen() {
                     timestamp: data.lastMessage.timestamp || data.lastMessageTimestamp || Timestamp.now()
                   };
                 } else {
-                  console.warn(`Invalid lastMessage.text for conversation ${docSnapshot.id}`);
+                  
                   lastMessageObj = {
                     text: 'Start a conversation!',
                     timestamp: data.lastMessageTimestamp || Timestamp.now()
                   };
                 }
               } else {
-                console.warn(`Unexpected lastMessage type for conversation ${docSnapshot.id}`);
+                
                 lastMessageObj = {
                   text: 'Start a conversation!',
                   timestamp: data.lastMessageTimestamp || Timestamp.now()
                 };
               }
             } catch (error) {
-              console.error(`Error processing lastMessage for conversation ${docSnapshot.id}:`, error);
+              
               lastMessageObj = {
                 text: 'Message unavailable',
                 timestamp: Timestamp.now()
@@ -176,13 +186,12 @@ export default function InboxScreen() {
           }
         });
         
-        console.log(`Loaded ${conversationList.length} conversations`);
         setConversations(conversationList);
         setIndexWarning(false);
         setIsLoading(false);
       }, (error) => {
         // Handle permission error gracefully
-        console.error("Error loading conversations:", error);
+        
         // Check if this is an index error
         if (error.message?.includes('index')) {
           setIndexWarning(true);
@@ -190,7 +199,7 @@ export default function InboxScreen() {
         setIsLoading(false);
       });
     } catch (error) {
-      console.error("Error setting up conversations listener:", error);
+      
       setIsLoading(false);
     }
     
@@ -254,7 +263,7 @@ export default function InboxScreen() {
         await updateDoc(docSnapshot.ref, { read: true });
       });
     } catch (error) {
-      console.error('Error marking messages as read:', error);
+      
     }
   };
   
@@ -314,7 +323,7 @@ export default function InboxScreen() {
       
       setSelectedConversation(newConversationRef.id);
     } catch (error) {
-      console.error('Error creating conversation:', error);
+      
     }
   };
   
@@ -353,7 +362,7 @@ export default function InboxScreen() {
       
       setMessageText('');
     } catch (error) {
-      console.error('Error sending message:', error);
+      
     }
   };
   
@@ -378,6 +387,29 @@ export default function InboxScreen() {
     }
   };
   
+  // Function to truncate long messages
+  const truncateText = (text: string, maxLength: number = 30): string => {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+  };
+  
+  // Check if match is less than 24 hours old
+  const isNewMatch = (matchTimestamp: any): boolean => {
+    if (!matchTimestamp) return false;
+    
+    // Convert Firestore timestamp to Date if necessary
+    const matchDate = matchTimestamp.toDate ? 
+      matchTimestamp.toDate() : 
+      new Date(matchTimestamp);
+    
+    const now = new Date();
+    const timeDiff = now.getTime() - matchDate.getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    return hoursDiff < 24;
+  };
+  
   const renderConversationItem = ({ item }: { item: Conversation }) => {
     // Get the other participant
     const otherParticipantId = item.participants.find(p => p !== user?.uid) || '';
@@ -386,8 +418,17 @@ export default function InboxScreen() {
     
     // Get the last message text and time
     const lastMessageText = typeof item.lastMessage?.text === 'string' 
-      ? item.lastMessage.text 
+      ? truncateText(item.lastMessage.text) 
       : 'No messages yet';
+    
+    // Format the timestamp for display
+    const timeText = item.lastMessage?.timestamp 
+      ? formatMessageTime(item.lastMessage.timestamp)
+      : '';
+      
+    // Check if this is a new match (less than 24h old)
+    const match = matches.find(m => m.userId === otherParticipantId);
+    const shouldBlurImage = match && isNewMatch(match.matchTimestamp);
     
     return (
       <TouchableOpacity 
@@ -402,15 +443,24 @@ export default function InboxScreen() {
           });
         }}
       >
-        <Image 
-          source={{ uri: otherParticipantPhoto || 'https://via.placeholder.com/60' }} 
-          style={styles.avatar} 
-        />
+        {shouldBlurImage ? (
+          <View style={styles.conversationBlurContainer}>
+            <Image 
+              source={{ uri: otherParticipantPhoto || 'https://via.placeholder.com/60' }} 
+              style={[styles.avatar, ]} 
+              blurRadius={40}
+            />
+          </View>
+        ) : (
+          <Image 
+            source={{ uri: otherParticipantPhoto || 'https://via.placeholder.com/60' }} 
+            style={styles.avatar} 
+          />
+        )}
         
         <View style={styles.conversationContent}>
           <View style={styles.conversationHeader}>
             <Text style={styles.userName}>{otherParticipantName}</Text>
-            <Text style={styles.timeText}>{lastMessageText}</Text>
           </View>
           
           <View style={styles.lastMessageContainer}>
@@ -438,6 +488,8 @@ export default function InboxScreen() {
   };
   
   const renderMatchItem = ({ item }: { item: MatchData }) => {
+    const shouldBlurImage = isNewMatch(item.matchTimestamp);
+    
     return (
       <TouchableOpacity 
         style={styles.matchItem}
@@ -451,10 +503,22 @@ export default function InboxScreen() {
           });
         }}
       >
-        <Image 
-          source={{ uri: item.profilePic || 'https://via.placeholder.com/60' }} 
-          style={styles.matchAvatar} 
-        />
+        <View style={styles.matchImageContainer}>
+          {shouldBlurImage ? (
+            <View style={styles.matchBlurContainer}>
+              <Image 
+                source={{ uri: item.profilePic || 'https://via.placeholder.com/60' }}
+                style={[styles.matchAvatar, { opacity: 0.3 }]}
+                blurRadius={15}
+              />
+            </View>
+          ) : (
+            <Image 
+              source={{ uri: item.profilePic || 'https://via.placeholder.com/60' }} 
+              style={styles.matchAvatar} 
+            />
+          )}
+        </View>
         <Text style={styles.matchName} numberOfLines={1}>
           {item.displayName}
         </Text>
@@ -466,7 +530,7 @@ export default function InboxScreen() {
     const isOwnMessage = item.senderId === user?.uid;
     
     // Ensure we're only rendering string text
-    const messageText = typeof item.text === 'string' ? item.text : 'Message unavailable';
+    const messageText = typeof item.text === 'string' ? truncateText(item.text, 300) : 'Message unavailable';
     const timeString = item.timestamp ? formatMessageTime(item.timestamp) : '';
     
     return (
@@ -582,9 +646,9 @@ export default function InboxScreen() {
           timestamp: oldData.lastMessageTimestamp || Timestamp.now()
         }
       });
-      console.log(`Migrated conversation ${conversationId} to new format`);
+      
     } catch (error) {
-      console.error(`Error migrating conversation ${conversationId}:`, error);
+      
     }
   };
   
@@ -612,9 +676,7 @@ export default function InboxScreen() {
   
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Inbox</Text>
-      </View>
+    
       
       {indexWarning && renderWarningMessage()}
       
@@ -666,16 +728,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#f8f8f8',
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 10,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-  },
+ 
+ 
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
@@ -693,6 +747,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
     width: 80,
   },
+  matchImageContainer: {
+    position: 'relative',
+  },
   matchAvatar: {
     width: 60,
     height: 60,
@@ -700,11 +757,22 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.secondary,
   },
+  matchBlurContainer: {
+    position: 'relative',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.secondary,
+  },
   matchName: {
     marginTop: 5,
     fontSize: 12,
     textAlign: 'center',
-    color: '#333',
+    color: COLORS.darkestMaroon,
     width: 70,
   },
   noMatchesText: {
@@ -921,5 +989,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#856404',
     lineHeight: 20,
+  },
+  conversationBlurContainer: {
+    position: 'relative',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    overflow: 'hidden',
   },
 });

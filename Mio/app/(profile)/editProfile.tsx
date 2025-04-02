@@ -309,7 +309,16 @@ export default function EditProfileScreen() {
           <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Edit Profile</Text>
-        <View style={styles.headerRight} />
+        <View style={styles.headerRight}>
+          {user?.isAdmin && (
+            <TouchableOpacity
+              onPress={() => router.push("/(admin)")}
+              style={styles.adminButton}
+            >
+              <Ionicons name="settings" size={22} color={COLORS.secondary} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
       
       <ScrollView 
@@ -333,9 +342,7 @@ export default function EditProfileScreen() {
                 <Ionicons name="person" size={60} color="#CCC" />
               </View>
             )}
-            <View style={styles.editIconContainer}>
-              <Ionicons name="camera" size={20} color="#FFF" />
-            </View>
+            
           </TouchableOpacity>
           <Text style={styles.profilePicHint}>Tap to change profile picture</Text>
         </View>
@@ -744,6 +751,11 @@ const styles = StyleSheet.create({
   },
   headerRight: {
     width: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  adminButton: {
+    padding: 8,
   },
   scrollView: {
     flex: 1,
@@ -776,19 +788,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F0F0F0',
   },
-  editIconContainer: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: COLORS.secondary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFF',
-  },
+  
   profilePicHint: {
     marginTop: 12,
     color: COLORS.secondary,
@@ -801,6 +801,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     backgroundColor: '#FFF',
     borderRadius: 12,
+    
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -813,8 +814,8 @@ const styles = StyleSheet.create({
       },
     }),
     marginHorizontal: 16,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
+    borderWidth: .5,
+    borderColor: COLORS.darkestMaroon,
   },
   sectionTitle: {
     fontSize: 18,
@@ -833,7 +834,7 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 16,
-    color: '#333',
+    color: COLORS.darkMaroon,
     marginBottom: 8,
   },
   textInput: {
@@ -872,17 +873,19 @@ const styles = StyleSheet.create({
   optionButton: {
     paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: 'white',
     borderRadius: 8,
     marginRight: 10,
     marginBottom: 10,
+    borderWidth: .5,
+    borderColor: COLORS.darkMaroon,
   },
   optionButtonSelected: {
     backgroundColor: COLORS.secondary,
   },
   optionButtonText: {
     fontSize: 14,
-    color: '#666',
+    color: COLORS.darkestMaroon,
   },
   optionButtonTextSelected: {
     color: '#FFF',
@@ -947,7 +950,7 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
   },
   saveButton: {
-    backgroundColor: COLORS.secondary,
+    backgroundColor: COLORS.darkMaroon,
     marginHorizontal: 16,
     marginTop: 24,
     marginBottom: 40,

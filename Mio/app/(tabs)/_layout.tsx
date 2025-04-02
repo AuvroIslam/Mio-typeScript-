@@ -5,6 +5,7 @@ import { ImageSourcePropType } from 'react-native'
 
 // Import from constants
 import { icons } from '../../constants'
+import { COLORS } from '../../constants/Colors'
 
 interface TabIconProps {
   icon: ImageSourcePropType;
@@ -43,7 +44,7 @@ const TabsLayout = () => {
     <Tabs
       initialRouteName="home"
       screenOptions={{
-        tabBarActiveTintColor: '#3b82f6',
+        tabBarActiveTintColor: COLORS.secondary,
         tabBarInactiveTintColor: '#94a3b8',
         tabBarShowLabel: false,
         tabBarStyle: {

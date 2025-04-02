@@ -1,5 +1,6 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, Timestamp, increment, setDoc } from 'firebase/firestore';
+import { AppState, AppStateStatus } from 'react-native';
 import { db } from '../config/firebaseConfig';
 import { useAuth } from './AuthContext';
 import * as Haptics from 'expo-haptics';
@@ -54,6 +55,8 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [cooldownTimer, setCooldownTimer] = useState<number | null>(null);
   const [removalCount, setRemovalCount] = useState(0);
   const [lastRemovalTime, setLastRemovalTime] = useState<Date | null>(null);
+  const [cooldownEndTime, setCooldownEndTime] = useState<Date | null>(null);
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
   // Initial fetch and cooldown timer setup
   useEffect(() => {
@@ -64,34 +67,64 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, [user]);
 
-  // Countdown timer effect
+  // App state change listener for handling background/foreground transitions
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      // When app comes to foreground from background/inactive state
+      if (appState !== 'active' && nextAppState === 'active' && cooldownEndTime) {
+        // Recalculate remaining time based on absolute end time
+        updateRemainingCooldownTime();
+      }
+      setAppState(nextAppState);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [appState, cooldownEndTime]);
+
+  // Function to update timer based on absolute end time
+  const updateRemainingCooldownTime = useCallback(() => {
+    if (!cooldownEndTime) return;
+    
+    const now = new Date();
+    const remainingMs = cooldownEndTime.getTime() - now.getTime();
+    
+    if (remainingMs <= 0) {
+      setCooldownEndTime(null);
+      setCooldownTimer(null);
+      setRemovalCount(0);
+    } else {
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      setCooldownTimer(remainingSeconds);
+    }
+  }, [cooldownEndTime]);
+
+  // Countdown timer effect - now uses the updateRemainingCooldownTime function
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
     
-    if (cooldownTimer && cooldownTimer > 0) {
+    if (cooldownEndTime) {
+      // Initial call to set the correct time
+      updateRemainingCooldownTime();
+      
+      // Set up interval that updates while app is in foreground
       interval = setInterval(() => {
-        setCooldownTimer(prev => {
-          if (prev && prev > 1) {
-            return prev - 1;
-          } else {
-            // Reset removal count when cooldown expires
-            setRemovalCount(0);
-            return null;
-          }
-        });
+        updateRemainingCooldownTime();
       }, 1000);
     }
     
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [cooldownTimer]);
+  }, [cooldownEndTime, updateRemainingCooldownTime]);
 
   const resetState = () => {
     setUserFavorites({ shows: [] });
     setRemovalCount(0);
     setCooldownTimer(null);
     setLastRemovalTime(null);
+    setCooldownEndTime(null);
   };
 
   const refreshUserFavorites = async () => {
@@ -124,15 +157,18 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
             const remainingMs = cooldownEnd.getTime() - now.getTime();
             setCooldownTimer(Math.ceil(remainingMs / 1000));
             setLastRemovalTime(lastRemoval);
+            setCooldownEndTime(cooldownEnd);
           } else if (profile.weeklyRemovals === 0) {
             // Cooldown has expired and reset is already done
             setCooldownTimer(null);
             setLastRemovalTime(null);
+            setCooldownEndTime(null);
           } else {
             // Cooldown has expired but count wasn't reset
             setCooldownTimer(null);
             setRemovalCount(0);
             setLastRemovalTime(null);
+            setCooldownEndTime(null);
             
             // Update Firestore
             try {
@@ -150,15 +186,15 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
-  const isFavorite = React.useCallback((show: ShowItem): boolean => {
+  const isFavorite = useCallback((show: ShowItem): boolean => {
     return userFavorites.shows.includes(show.id.toString());
   }, [userFavorites.shows]);
 
-  const getTotalFavorites = React.useCallback((): number => {
+  const getTotalFavorites = useCallback((): number => {
     return userFavorites.shows.length;
   }, [userFavorites.shows]);
 
-  const getRemainingRemovals = React.useCallback((): number => {
+  const getRemainingRemovals = useCallback((): number => {
     return MAX_WEEKLY_REMOVALS - removalCount;
   }, [removalCount]);
 
@@ -282,6 +318,8 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Update removal count and cooldown in local state
       if (needsCooldown) {
         setRemovalCount(0);
+        const cooldownEnd = new Date(now.getTime() + COOLDOWN_MINUTES * 60 * 1000);
+        setCooldownEndTime(cooldownEnd);
         setCooldownTimer(COOLDOWN_MINUTES * 60);
         setLastRemovalTime(now);
       } else {
@@ -292,7 +330,8 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       await updateDoc(userRef, {
         'profile.favoriteShows': arrayRemove(showId),
         'profile.lastRemovalTime': needsCooldown ? Timestamp.now() : (lastRemovalTime ? Timestamp.fromDate(lastRemovalTime) : null),
-        'profile.weeklyRemovals': needsCooldown ? 0 : newRemovalCount
+        'profile.weeklyRemovals': needsCooldown ? 0 : newRemovalCount,
+        'profile.cooldownEndTime': needsCooldown ? Timestamp.fromDate(new Date(now.getTime() + COOLDOWN_MINUTES * 60 * 1000)) : null
       });
       
       // Update showUsers collection
