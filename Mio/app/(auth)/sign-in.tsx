@@ -10,7 +10,7 @@ import {
     Modal,
     TextInput,
     ImageBackground,
-    ActivityIndicator // Keep ActivityIndicator if used elsewhere, not needed for this specific change
+     // Keep ActivityIndicator if used elsewhere, not needed for this specific change
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,8 +20,7 @@ import { useAuth } from '../../context/AuthContext';
 // Keep Toast for other messages if needed, but we won't use it for login failure here
 import Toast from 'react-native-toast-message';
 import { COLORS } from '../../constants/Colors';
-import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+
 
 const SignIn = () => {
     const router = useRouter();
@@ -62,7 +61,7 @@ const SignIn = () => {
        if (signInError) {
            setSignInError(null);
        }
-    }, [email, password]);
+    }, [email, password, signInError]);
 
     // Make sure we stay on the sign-in page when there's an error
     useEffect(() => {

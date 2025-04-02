@@ -9,12 +9,12 @@ import {
   ActivityIndicator,
   TextInput
 } from 'react-native';
-import { router, useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
+
 import { 
   collection, 
   query, 
@@ -24,7 +24,7 @@ import {
   doc,
   getDoc,
   updateDoc,
-  arrayUnion,
+ 
   Timestamp,
   setDoc,
   getDocs
@@ -63,16 +63,15 @@ interface MatchData {
 export default function InboxScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams();
-  const initialMatchId = params.matchId as string;
+ 
+  
   
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [messageText, setMessageText] = useState('');
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
-  const [otherUserName, setOtherUserName] = useState('');
-  const [sendingMessage, setSendingMessage] = useState(false);
+
   const [matches, setMatches] = useState<MatchData[]>([]);
   const [indexWarning, setIndexWarning] = useState(false);
   

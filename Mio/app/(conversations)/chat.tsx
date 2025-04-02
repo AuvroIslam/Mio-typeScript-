@@ -18,7 +18,6 @@ import { COLORS } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { useMatch } from '../../context/MatchContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { 
   collection, 
@@ -30,7 +29,6 @@ import {
   getDoc, 
   updateDoc, 
   arrayUnion, 
-  setDoc, 
   Timestamp,
   getDocs,
   limit,
@@ -182,7 +180,6 @@ export default function ChatScreen() {
     photo: ''
   });
   const [unsubscribeConversation, setUnsubscribeConversation] = useState<() => void | null>(() => null);
-  const [unsubscribeMessages, setUnsubscribeMessages] = useState<() => void | null>(() => null);
   
   // Cache reference
   const cachedConversationId = useRef<string | null>(null);
@@ -216,52 +213,29 @@ export default function ChatScreen() {
   useEffect(() => {
     return () => {
       if (unsubscribeConversation) unsubscribeConversation();
-      if (unsubscribeMessages) unsubscribeMessages();
     };
-  }, [unsubscribeConversation, unsubscribeMessages]);
-  
-  // Initialize or load existing conversation
-  useEffect(() => {
+  }, [unsubscribeConversation]);
+
+  // Mark messages as read
+  const markMessagesAsRead = useCallback(async (convId: string) => {
     if (!user) return;
     
-    const initializeChat = async () => {
-      setIsLoading(true);
+    try {
+      // Just update the unread count in conversation document
+      await updateDoc(doc(db, 'conversations', convId), {
+        [`unreadCount.${user.uid}`]: 0
+      });
       
-      try {
-        // If we have a conversation ID, just load that conversation
-        if (conversationId) {
-          await loadExistingConversation(conversationId);
-          return;
-        }
-        
-        // If we have a matchId, check if a conversation exists or create a new one
-        if (matchId) {
-          const existingConversationId = await findOrCreateConversation(matchId);
-          if (existingConversationId) {
-            await loadExistingConversation(existingConversationId);
-          }
-        }
-      } catch (error) {
-        console.error('Error initializing chat:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    initializeChat();
-    
-    // Clean up on unmount
-    return () => {
-      if (cachedConversationId.current) {
-        // Store last read time in AsyncStorage to reduce unnecessary reads
-        const lastReadKey = `lastRead_${cachedConversationId.current}_${user.uid}`;
-        AsyncStorage.setItem(lastReadKey, new Date().toISOString());
-      }
-    };
-  }, [user, conversationId, matchId]);
+      // Store last read time in AsyncStorage
+      const lastReadKey = `lastRead_${convId}_${user.uid}`;
+      await AsyncStorage.setItem(lastReadKey, new Date().toISOString());
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+    }
+  }, [user]);
   
   // Find existing conversation or create a new one
-  const findOrCreateConversation = async (otherUserId: string) => {
+  const findOrCreateConversation = useCallback(async (otherUserId: string) => {
     if (!user) return null;
     
     try {
@@ -363,20 +337,15 @@ export default function ChatScreen() {
       console.error('Error finding or creating conversation:', error);
       return null;
     }
-  };
+  }, [user]);
   
   // Load an existing conversation
-  const loadExistingConversation = async (id: string) => {
+  const loadExistingConversation = useCallback(async (id: string) => {
     if (!user) return;
     
     try {
       // Set cached conversation ID
       cachedConversationId.current = id;
-      
-      // Check cache for last read time
-      const lastReadKey = `lastRead_${id}_${user.uid}`;
-      const lastReadTimeStr = await AsyncStorage.getItem(lastReadKey);
-      const lastReadTime = lastReadTimeStr ? new Date(lastReadTimeStr) : null;
       
       // Listen for conversation updates - using onSnapshot only for real-time critical data
       const unsub = onSnapshot(doc(db, 'conversations', id), (docSnapshot) => {
@@ -412,25 +381,47 @@ export default function ChatScreen() {
       console.error('Error loading conversation:', error);
       setIsLoading(false);
     }
-  };
+  }, [user, messages.length, loadMessages, markMessagesAsRead]);
   
-  // Mark messages as read
-  const markMessagesAsRead = async (convId: string) => {
+  // Initialize or load existing conversation
+  useEffect(() => {
     if (!user) return;
     
-    try {
-      // Just update the unread count in conversation document
-      await updateDoc(doc(db, 'conversations', convId), {
-        [`unreadCount.${user.uid}`]: 0
-      });
+    const initializeChat = async () => {
+      setIsLoading(true);
       
-      // Store last read time in AsyncStorage
-      const lastReadKey = `lastRead_${convId}_${user.uid}`;
-      await AsyncStorage.setItem(lastReadKey, new Date().toISOString());
-    } catch (error) {
-      console.error('Error marking messages as read:', error);
-    }
-  };
+      try {
+        // If we have a conversation ID, just load that conversation
+        if (conversationId) {
+          await loadExistingConversation(conversationId);
+          return;
+        }
+        
+        // If we have a matchId, check if a conversation exists or create a new one
+        if (matchId) {
+          const existingConversationId = await findOrCreateConversation(matchId);
+          if (existingConversationId) {
+            await loadExistingConversation(existingConversationId);
+          }
+        }
+      } catch (error) {
+        console.error('Error initializing chat:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    initializeChat();
+    
+    // Clean up on unmount
+    return () => {
+      if (cachedConversationId.current) {
+        // Store last read time in AsyncStorage to reduce unnecessary reads
+        const lastReadKey = `lastRead_${cachedConversationId.current}_${user.uid}`;
+        AsyncStorage.setItem(lastReadKey, new Date().toISOString());
+      }
+    };
+  }, [user, conversationId, matchId, findOrCreateConversation, loadExistingConversation]);
   
   // Send a message
   const sendMessage = async () => {

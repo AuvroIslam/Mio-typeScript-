@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -14,7 +14,6 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import { COLORS } from '../../constants/Colors';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
@@ -74,14 +73,7 @@ export default function UserProfileScreen() {
   
   const shouldBlurImages = isNewMatch();
   
-  useEffect(() => {
-    if (userId) {
-      fetchUserProfile();
-      fetchAllShows();
-    }
-  }, [userId]);
-  
-  const fetchUserProfile = async () => {
+  const fetchUserProfile = useCallback(async () => {
     try {
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (userDoc.exists() && userDoc.data().profile) {
@@ -96,9 +88,9 @@ export default function UserProfileScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [userId]);
   
-  const fetchAllShows = async () => {
+  const fetchAllShows = useCallback(async () => {
     if (!favoriteShowIds.length) return;
     
     try {
@@ -132,7 +124,14 @@ export default function UserProfileScreen() {
     } catch (error) {
       console.error('Error fetching shows:', error);
     }
-  };
+  }, [favoriteShowIds]);
+  
+  useEffect(() => {
+    if (userId) {
+      fetchUserProfile();
+      fetchAllShows();
+    }
+  }, [userId, fetchUserProfile, fetchAllShows]);
   
   const getMatchLevelStyle = (level: MatchLevel) => {
     switch (level) {
