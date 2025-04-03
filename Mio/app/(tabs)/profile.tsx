@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
-
+  SafeAreaView as RNSafeAreaView, 
   StyleSheet, 
   Image, 
   ScrollView, 
@@ -19,9 +19,9 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
-import { doc, getDoc,  Timestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayRemove, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
-
+import ParallaxScrollView from '../../components/ParallaxScrollView';
 import { COLORS } from '../../constants/Colors';
 import { router } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,6 +31,7 @@ import icon from '../../assets/images/icon.png';
 import { useFavorites } from '../../context/FavoritesContext';
 
 const { width, height } = Dimensions.get('window');
+const PROFILE_IMAGE_SIZE = width * 0.35;
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5;
 const COOLDOWN_MINUTES = 5;
@@ -171,10 +172,7 @@ export default function ProfileScreen() {
   const [forceUpdate, setForceUpdate] = useState(0);
   const insets = useSafeAreaInsets();
 
-  // Log favorites status when mounted or changed
-  useEffect(() => {
-    // console.log(`Profile: Favorites Context: Shows: ${userFavorites.shows.length}, Removals: ${removalCount}`);
-  }, [userFavorites, removalCount]);
+
 
   // Fetch user profile on mount and when userFavorites changes
   useEffect(() => {
@@ -200,7 +198,7 @@ export default function ProfileScreen() {
           fetchShowDetails();
         }
       } catch (error) {
-        // console.error('Error fetching profile:', error);
+        console.error('Error fetching profile:', error);
         setFeedbackModal({
           visible: true,
           message: 'Failed to load profile. Please try again.',
@@ -221,7 +219,7 @@ export default function ProfileScreen() {
     let shows: {[key: string]: ShowItem} = {};
     
     try {
-      // console.log(`Profile: Fetching details for ${userFavorites.shows.length} favorite shows`);
+
       
       // Fetch show details
       if (userFavorites.shows && userFavorites.shows.length > 0) {
@@ -250,15 +248,15 @@ export default function ProfileScreen() {
               };
             }
           } catch (error) {
-            // console.error(`Error fetching show ${id}:`, error);
+            console.error(`Error fetching show ${id}:`, error);
           }
         }));
       }
       
-      // console.log(`Profile: Fetched details for ${Object.keys(shows).length} shows`);
+
       setFavoriteShows(shows);
     } catch (error) {
-      // console.error('Error fetching show details:', error);
+      console.error('Error fetching show details:', error);
     }
   };
 
@@ -273,7 +271,7 @@ export default function ProfileScreen() {
             await logout();
             router.replace("/(auth)/sign-in");
           } catch (error) {
-            // console.error("Error logging out:", error);
+            console.error("Error logging out:", error);
             setFeedbackModal({
               visible: true,
               message: 'Failed to log out. Please try again.',
@@ -292,7 +290,7 @@ export default function ProfileScreen() {
     const show = favoriteShows[showId];
     
     if (!show) {
-      // console.error('Show not found in favorites');
+      console.error('Show not found in favorites');
       return;
     }
     
@@ -322,7 +320,7 @@ export default function ProfileScreen() {
         show,
         // Success callback
         () => {
-          // console.log(`Profile: Successfully removed ${show.title} from favorites`);
+
           
           // Update local state of favorite shows - will be refreshed on next render
           const newFavoriteShows = { ...favoriteShows };
@@ -347,7 +345,7 @@ export default function ProfileScreen() {
         },
         // Error callback
         () => {
-          // console.error(`Profile: Failed to remove ${show.title} from favorites`);
+          console.error(`Profile: Failed to remove ${show.title} from favorites`);
           setFeedbackModal({
             visible: true,
             message: 'Failed to remove show. Please try again.',
@@ -356,7 +354,7 @@ export default function ProfileScreen() {
         },
         // Cooldown callback
         (cooldownTime) => {
-          // console.warn(`Profile: Cooldown active (${cooldownTime}s) when trying to remove ${show.title}`);
+          console.warn(`Profile: Cooldown active (${cooldownTime}s) when trying to remove ${show.title}`);
           const minutes = Math.floor(cooldownTime / 60);
           const seconds = cooldownTime % 60;
           setFeedbackModal({
@@ -367,7 +365,7 @@ export default function ProfileScreen() {
         }
       );
     } catch (error) {
-      // console.error("Error removing show:", error);
+      console.error("Error removing show:", error);
       setFeedbackModal({
         visible: true,
         message: 'Failed to remove show. Please try again.',

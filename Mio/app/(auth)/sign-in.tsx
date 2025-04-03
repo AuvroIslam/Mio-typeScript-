@@ -10,7 +10,7 @@ import {
     Modal,
     TextInput,
     ImageBackground,
-     // Keep ActivityIndicator if used elsewhere, not needed for this specific change
+    ActivityIndicator // Keep ActivityIndicator if used elsewhere, not needed for this specific change
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,7 +20,8 @@ import { useAuth } from '../../context/AuthContext';
 // Keep Toast for other messages if needed, but we won't use it for login failure here
 import Toast from 'react-native-toast-message';
 import { COLORS } from '../../constants/Colors';
-
+import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SignIn = () => {
     const router = useRouter();
@@ -61,7 +62,7 @@ const SignIn = () => {
        if (signInError) {
            setSignInError(null);
        }
-    }, [email, password, signInError]);
+    }, [email, password]);
 
     // Make sure we stay on the sign-in page when there's an error
     useEffect(() => {
@@ -123,7 +124,9 @@ const SignIn = () => {
         setSignInError(null); // Clear previous errors
 
         try {
+           
             await signIn(email, password);
+            
             // Success: Navigation is handled by the useEffect hook watching the `user` state
             // You could show a success toast here if you still want one for successful login
             Toast.show({
@@ -132,41 +135,54 @@ const SignIn = () => {
                 position: 'bottom',
                 visibilityTime: 2000
             });
-        } catch (error) {
-            // Handle auth errors
-            let errorMessage = 'An unknown error occurred';
+        } catch (error: any) {
+            console.error("Sign In Failed:", error); // Log the actual error
             
-            // Find specific Firebase Auth error message
-            // @ts-ignore - We know error might have message
-            if (error.message) {
-                // @ts-ignore
-                if (error.message.includes('user-not-found') || 
-                    // @ts-ignore
-                    error.message.includes('wrong-password') ||
-                    // @ts-ignore
-                    error.message.includes('invalid-credential')) {
-                    errorMessage = 'Invalid email or password';
-                // @ts-ignore
-                } else if (error.message.includes('too-many-requests')) {
-                    errorMessage = 'Too many login attempts. Please try again later.';
-                // @ts-ignore
-                } else if (error.message.includes('network-request-failed')) {
-                    errorMessage = 'Network error. Please check your connection.';
-                }
+            // IMPORTANT: Clear password for better security
+            setPassword('');
+            
+            // IMPORTANT: Show a very visible error message
+            let errorMessage = 'An unexpected error occurred. Please try again.';
+            
+            // Set specific error message based on error code
+            if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+                errorMessage = 'Invalid email or password. Please try again.';
+            } else if (error.code === 'auth/too-many-requests') {
+                errorMessage = 'Too many attempts. Please try again later.';
+            } else if (error.code === 'auth/network-request-failed') {
+                errorMessage = 'Network error. Check connection and try again.';
+            } else if (error.code === 'auth/invalid-email') {
+                errorMessage = 'The email format is invalid.';
             }
             
+            // Set inline error message
             setSignInError(errorMessage);
             
-            // Show floating toast for error
-            Toast.show({
-                type: 'error',
-                text1: 'Sign In Failed',
-                text2: errorMessage,
-                position: 'bottom',
-                visibilityTime: 3000
-            });
+            // Show a very visible toast notification
+            // Using setTimeout to ensure it shows even if navigation attempts happen
+            setTimeout(() => {
+                Toast.show({
+                    type: 'error',
+                    text1: 'Sign In Failed',
+                    text2: errorMessage,
+                    position: 'top', // Position at top for better visibility
+                    visibilityTime: 5000, // Show for longer
+                    topOffset: 50, // Lower from the top edge
+                    props: { // Make it extra visible
+                        style: {
+                            borderLeftColor: 'red',
+                            borderLeftWidth: 10,
+                        },
+                    }
+                });
+            }, 500);
+            
+            // Force navigation to stay on sign-in page
+            router.replace('/sign-in');
         } finally {
-            setIsProcessingSignIn(false);
+             // Important: Set processing to false regardless of success or failure
+             setIsProcessingSignIn(false);
+            
         }
     };
 

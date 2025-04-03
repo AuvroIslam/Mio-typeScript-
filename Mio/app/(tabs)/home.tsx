@@ -133,6 +133,9 @@ export default function HomeScreen() {
     getTotalFavorites
   } = useFavorites();
   
+  // Add logging to verify context is accessible
+
+  
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<ShowItem[]>([]);
@@ -155,16 +158,14 @@ export default function HomeScreen() {
   }, [user]);
   
   // Force re-render when userFavorites changes to update UI
-  useEffect(() => {
-    // Remove logging
-  }, [userFavorites]);
+
 
   // Update to open appropriate confirmation modal
   const handleFavoriteToggle = (show: ShowItem) => {
     setSelectedShowForFavorite(show);
     
     const currentlyFavorite = isFavorite(show);
-    // Remove logging
+
     
     // Trigger haptic feedback
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -188,11 +189,11 @@ export default function HomeScreen() {
       selectedShowForFavorite,
       // Success callback
       () => {
-        // Remove logging
+   
         
         // Refresh favorites from Firestore to ensure UI is in sync
         refreshUserFavorites().then(() => {
-          // Remove logging
+   
           setFeedbackModal({
             visible: true,
             message: `Added to your favorites`,
@@ -202,7 +203,7 @@ export default function HomeScreen() {
       },
       // Error callback
       () => {
-        // Remove logging
+        console.error(`Home: Failed to add ${selectedShowForFavorite.title} to favorites`);
         setFeedbackModal({
           visible: true,
           message: 'Failed to add to favorites. Please try again.',
@@ -211,7 +212,7 @@ export default function HomeScreen() {
       },
       // Limit callback
       () => {
-        // Remove logging
+        console.warn(`Home: Favorites limit reached (${MAX_FAVORITES} maximum)`);
         setFeedbackModal({
           visible: true,
           message: `You can only add up to ${MAX_FAVORITES} favorites. Please remove some before adding more.`,
@@ -231,11 +232,11 @@ export default function HomeScreen() {
       selectedShowForFavorite,
       // Success callback
       () => {
-        // Remove logging
+     
         
         // Refresh favorites from Firestore to ensure UI is in sync
         refreshUserFavorites().then(() => {
-          // Remove logging
+       
           setFeedbackModal({
             visible: true,
             message: `Removed from your favorites`,
@@ -245,7 +246,7 @@ export default function HomeScreen() {
       },
       // Error callback
       () => {
-        // Remove logging
+        console.error(`Home: Failed to remove ${selectedShowForFavorite.title} from favorites`);
         setFeedbackModal({
           visible: true,
           message: 'Failed to remove from favorites. Please try again.',
@@ -254,7 +255,7 @@ export default function HomeScreen() {
       },
       // Cooldown callback
       (cooldownTime) => {
-        // Remove logging
+        console.warn(`Home: Cooldown active (${cooldownTime}s) when trying to remove ${selectedShowForFavorite.title}`);
         const minutes = Math.floor(cooldownTime / 60);
         const seconds = cooldownTime % 60;
         setFeedbackModal({
@@ -279,11 +280,11 @@ export default function HomeScreen() {
         
         // Sort by order field to maintain admin-specified ordering
         shows.sort((a, b) => (a.order || 0) - (b.order || 0));
-        // Remove logging
+       
         
         setTrendingShows(shows);
       } else {
-        // Remove logging
+      
         // Fetch K-Drama using the discover endpoint
         const kdramaResponse = await fetch(
           `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_origin_country=KR&with_original_language=ko&sort_by=popularity.desc`
@@ -315,7 +316,7 @@ export default function HomeScreen() {
         setTrendingShows(filteredShows);
       }
     } catch (error) {
-      // Remove logging
+      console.error('Error fetching trending shows:', error);
       setFeedbackModal({
         visible: true,
         message: 'Failed to load trending shows. Please try again.',
@@ -406,7 +407,7 @@ export default function HomeScreen() {
         
         setSearchResults(uniqueResults);
       } catch (error) {
-        // Remove logging
+        console.error('Error searching shows:', error);
         setFeedbackModal({
           visible: true,
           message: 'Search failed. Please try again.',

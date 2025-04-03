@@ -1,13 +1,12 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ImageBackground } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CustomButton, Loader } from '../../components';
 import { useAuth } from '../../context/AuthContext';
 import { useEmailVerification } from '../../hooks/useEmailVerification';
-import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '../../constants/Colors';
-import mioLogo from '../../assets/images/mioLogo.png';
+import signinBackground from '../../assets/images/signinBackground.jpg';
 
 const EmailVerification = () => {
   const router = useRouter();
@@ -58,17 +57,9 @@ const EmailVerification = () => {
 
   if (verified) {
     return (
-      <LinearGradient
-        colors={[COLORS.gradient.darkPink, COLORS.gradient.lightPink, '#ffffff']}
-        style={styles.gradientContainer}
-      >
+      <ImageBackground source={signinBackground} style={styles.backgroundImage}>
         <SafeAreaView style={styles.container}>
           <View style={styles.contentContainer}>
-            <Image 
-              source={mioLogo}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
             <View style={styles.card}>
               <Text style={styles.title}>Email Verified!</Text>
               <Text style={styles.message}>
@@ -78,23 +69,14 @@ const EmailVerification = () => {
             </View>
           </View>
         </SafeAreaView>
-      </LinearGradient>
+      </ImageBackground>
     );
   }
 
   return (
-    <LinearGradient
-      colors={[COLORS.gradient.darkPink, COLORS.gradient.lightPink, '#ffffff']}
-      style={styles.gradientContainer}
-    >
+    <ImageBackground source={signinBackground} style={styles.backgroundImage}>
       <SafeAreaView style={styles.container}>
         <View style={styles.contentContainer}>
-          <Image 
-            source={mioLogo}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
-          
           <View style={styles.card}>
             <Text style={styles.title}>Verify Your Email</Text>
             
@@ -128,13 +110,15 @@ const EmailVerification = () => {
           </View>
         </View>
       </SafeAreaView>
-    </LinearGradient>
+    </ImageBackground>
   );
 };
 
 const styles = StyleSheet.create({
-  gradientContainer: {
+  backgroundImage: {
     flex: 1,
+    width: '100%',
+    height: '100%',
   },
   container: {
     flex: 1,
@@ -146,31 +130,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  logoImage: {
-    width: 100,
-    height: 100,
-    marginBottom: 40,
-  },
   card: {
-    backgroundColor: COLORS.tertiary,
+    height:'60%',
+    marginTop: 200,
     borderRadius: 20,
     padding: 24,
     width: '100%',
     alignItems: 'center',
-    shadowColor: COLORS.black,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
+    
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: COLORS.secondary,
-    marginBottom: 16,
+    marginBottom: 4,
   },
   message: {
-    fontSize: 16,
+    fontSize: 14,
     textAlign: 'center',
     color: COLORS.text.secondary,
     marginBottom: 8,

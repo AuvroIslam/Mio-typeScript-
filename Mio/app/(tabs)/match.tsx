@@ -60,7 +60,7 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
           onPress: () => {
             setIsUnmatching(true);
             onUnmatch(match.userId)
-              .catch(err => {/* Error handled in component */})
+              .catch(err => console.error("Error in unmatch:", err))
               .finally(() => setIsUnmatching(false));
           },
           style: "destructive"
@@ -234,6 +234,7 @@ export default function MatchScreen() {
     const currentMatchCount = matches.length;
     setMatchesBeforeSearch(currentMatchCount);
     
+    
     try {
       // Search for matches - the useEffect will handle showing notifications
       await searchMatches();
@@ -257,9 +258,12 @@ export default function MatchScreen() {
   
   const handleUnmatch = async (userId: string) => {
     try {
+    
       await unmatchUser(userId);
+    
       return true;
     } catch (error) {
+      console.error('Error in handleUnmatch:', error);
       // Show an alert to the user
       Alert.alert(
         "Unmatch Failed",
@@ -275,6 +279,7 @@ export default function MatchScreen() {
     if (isSearching === false && matchesBeforeSearch > 0) {
       // Calculate new matches after search completes
       const newMatches = matches.length - matchesBeforeSearch;
+
       
       if (newMatches !== newMatchCount) {
         setNewMatchCount(newMatches);

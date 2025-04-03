@@ -55,7 +55,7 @@ const RootLayout = () => {
           );
         }
       } catch (error) {
-        console.log('Error checking for updates:', error);
+        
       }
     };
 

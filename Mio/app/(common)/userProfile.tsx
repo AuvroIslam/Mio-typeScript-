@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -73,7 +73,14 @@ export default function UserProfileScreen() {
   
   const shouldBlurImages = isNewMatch();
   
-  const fetchUserProfile = useCallback(async () => {
+  useEffect(() => {
+    if (userId) {
+      fetchUserProfile();
+      fetchAllShows();
+    }
+  }, [userId]);
+  
+  const fetchUserProfile = async () => {
     try {
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (userDoc.exists() && userDoc.data().profile) {
@@ -88,9 +95,9 @@ export default function UserProfileScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  };
   
-  const fetchAllShows = useCallback(async () => {
+  const fetchAllShows = async () => {
     if (!favoriteShowIds.length) return;
     
     try {
@@ -124,14 +131,7 @@ export default function UserProfileScreen() {
     } catch (error) {
       console.error('Error fetching shows:', error);
     }
-  }, [favoriteShowIds]);
-  
-  useEffect(() => {
-    if (userId) {
-      fetchUserProfile();
-      fetchAllShows();
-    }
-  }, [userId, fetchUserProfile, fetchAllShows]);
+  };
   
   const getMatchLevelStyle = (level: MatchLevel) => {
     switch (level) {

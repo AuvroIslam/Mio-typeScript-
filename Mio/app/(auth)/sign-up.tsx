@@ -14,8 +14,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CustomButton, InputField, Loader } from '../../components';
 import { useAuth } from '../../context/AuthContext';
 import Toast from 'react-native-toast-message';
-import {  COLORS } from '../../constants/Colors';
-
+import { Colors, COLORS } from '../../constants/Colors';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const SignUp = () => {
   const router = useRouter();

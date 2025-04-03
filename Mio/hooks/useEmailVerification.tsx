@@ -35,7 +35,7 @@ export const useEmailVerification = (
   // Handle redirection after verification is confirmed
   useEffect(() => {
     if (verified) {
-      console.log('Email verified, redirecting to:', redirectOnVerify);
+
       
       // Attempt immediate redirection
       router.replace(redirectOnVerify as any);
@@ -72,7 +72,7 @@ export const useEmailVerification = (
           await refreshUserState();
           
           if (auth.currentUser.emailVerified) {
-            console.log('Email verification detected!');
+          
             Toast.show({
               type: 'success',
               text1: 'Email Verified!',

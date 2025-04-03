@@ -21,33 +21,52 @@ const PhotoUploadStep = () => {
   const { registrationData, updateField, nextStep, prevStep } = useRegistration();
   const [error, setError] = useState('');
   const [isUploading, setIsUploading] = useState(false);
-  const [imageUri, setImageUri] = useState('');
 
-  const pickImage = async () => {
-    setIsUploading(true);
+  const pickImage = async (isProfile = false) => {
     try {
-      // No permissions request needed for picking images from the library
+   
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: 'images',
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.8, // Reduced quality to keep file sizes smaller
       });
 
+
+      
       if (!result.canceled) {
-        // Upload to Cloudinary
-        const cloudinaryUrl = await uploadImage(result.assets[0].uri);
-        setImageUri(result.assets[0].uri);
-        updateField('profilePic', cloudinaryUrl);
-        setError('');
+        setIsUploading(true);
+        try {
+
+          // Upload to Cloudinary and get URL
+          const cloudinaryUrl = await uploadImage(result.assets[0].uri);
+
+          
+          if (isProfile) {
+            // Store Cloudinary URL of the profile picture
+            updateField('profilePic', cloudinaryUrl);
+            setError('');
+          } else {
+            if (registrationData.additionalPics.length < 3) {
+              // Store Cloudinary URLs of additional pictures
+              updateField('additionalPics', [
+                ...registrationData.additionalPics,
+                cloudinaryUrl,
+              ]);
+            } else {
+              Alert.alert('Maximum Photos', 'You can only upload up to 3 additional photos.');
+            }
+          }
+        } catch (error) {
+          console.error('Error uploading to Cloudinary:', error);
+          Alert.alert('Upload Error', 'Failed to upload image to Cloudinary. Please try again.');
+        } finally {
+          setIsUploading(false);
+        }
       }
     } catch (error) {
-      Alert.alert(
-        "Upload Failed",
-        "Failed to upload your photo. Please try again.",
-        [{ text: "OK" }]
-      );
-    } finally {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
       setIsUploading(false);
     }
   };
@@ -70,7 +89,7 @@ const PhotoUploadStep = () => {
   const renderProfilePicture = () => {
     if (registrationData.profilePic) {
       return (
-        <TouchableOpacity onPress={pickImage} style={styles.profilePicContainer}>
+        <TouchableOpacity onPress={() => pickImage(true)} style={styles.profilePicContainer}>
           <Image source={{ uri: registrationData.profilePic }} style={styles.profilePic} />
           <View style={styles.editIconContainer}>
             <Ionicons name="pencil" size={20} color="white" />
@@ -81,7 +100,7 @@ const PhotoUploadStep = () => {
 
     return (
       <TouchableOpacity 
-        onPress={pickImage} 
+        onPress={() => pickImage(true)} 
         style={styles.addProfilePicButton}
         disabled={isUploading}
       >
@@ -132,7 +151,7 @@ const PhotoUploadStep = () => {
           {registrationData.additionalPics.length < 3 && (
             <TouchableOpacity 
               style={styles.addAdditionalPicButton}
-              onPress={() => pickImage()}
+              onPress={() => pickImage(false)}
               disabled={isUploading}
             >
               {isUploading ? (

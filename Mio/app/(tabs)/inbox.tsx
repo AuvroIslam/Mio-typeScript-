@@ -9,12 +9,12 @@ import {
   ActivityIndicator,
   TextInput
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { router, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
+import { BlurView } from 'expo-blur';
 import { 
   collection, 
   query, 
@@ -24,7 +24,7 @@ import {
   doc,
   getDoc,
   updateDoc,
- 
+  arrayUnion,
   Timestamp,
   setDoc,
   getDocs
@@ -63,15 +63,16 @@ interface MatchData {
 export default function InboxScreen() {
   const { user } = useAuth();
   const router = useRouter();
- 
-  
+  const params = useLocalSearchParams();
+  const initialMatchId = params.matchId as string;
   
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [messageText, setMessageText] = useState('');
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
-
+  const [otherUserName, setOtherUserName] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
   const [matches, setMatches] = useState<MatchData[]>([]);
   const [indexWarning, setIndexWarning] = useState(false);
   
@@ -83,24 +84,13 @@ export default function InboxScreen() {
     
     // Get user's matches
     const fetchMatches = async () => {
-      if (!user) return;
-      
       try {
-        const matchesRef = collection(db, 'matches', user.uid, 'userMatches');
-        const querySnapshot = await getDocs(matchesRef);
-        
-        const matchesList: MatchData[] = [];
-        querySnapshot.forEach((doc) => {
-          const matchData = doc.data() as MatchData;
-          matchesList.push({
-            ...matchData,
-            userId: doc.id
-          });
-        });
-        
-        setMatches(matchesList);
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists() && userDoc.data().matches) {
+          setMatches(userDoc.data().matches || []);
+        }
       } catch (error) {
-        
+        console.error('Error fetching matches:', error);
       }
     };
     
@@ -123,6 +113,9 @@ export default function InboxScreen() {
           const otherParticipant = data.participants.find((p: string) => p !== user.uid);
           
           if (otherParticipant) {
+            // Log data for debugging
+       
+            
             // Safely extract and normalize necessary data
             const participantNames = data.participantNames || {};
             const participantPhotos = data.participantPhotos || {};
@@ -152,21 +145,21 @@ export default function InboxScreen() {
                     timestamp: data.lastMessage.timestamp || data.lastMessageTimestamp || Timestamp.now()
                   };
                 } else {
-                  
+                  console.warn(`Invalid lastMessage.text for conversation ${docSnapshot.id}`);
                   lastMessageObj = {
                     text: 'Start a conversation!',
                     timestamp: data.lastMessageTimestamp || Timestamp.now()
                   };
                 }
               } else {
-                
+                console.warn(`Unexpected lastMessage type for conversation ${docSnapshot.id}`);
                 lastMessageObj = {
                   text: 'Start a conversation!',
                   timestamp: data.lastMessageTimestamp || Timestamp.now()
                 };
               }
             } catch (error) {
-              
+              console.error(`Error processing lastMessage for conversation ${docSnapshot.id}:`, error);
               lastMessageObj = {
                 text: 'Message unavailable',
                 timestamp: Timestamp.now()
@@ -185,12 +178,13 @@ export default function InboxScreen() {
           }
         });
         
+    
         setConversations(conversationList);
         setIndexWarning(false);
         setIsLoading(false);
       }, (error) => {
         // Handle permission error gracefully
-        
+        console.error("Error loading conversations:", error);
         // Check if this is an index error
         if (error.message?.includes('index')) {
           setIndexWarning(true);
@@ -198,7 +192,7 @@ export default function InboxScreen() {
         setIsLoading(false);
       });
     } catch (error) {
-      
+      console.error("Error setting up conversations listener:", error);
       setIsLoading(false);
     }
     
@@ -262,7 +256,7 @@ export default function InboxScreen() {
         await updateDoc(docSnapshot.ref, { read: true });
       });
     } catch (error) {
-      
+      console.error('Error marking messages as read:', error);
     }
   };
   
@@ -322,7 +316,7 @@ export default function InboxScreen() {
       
       setSelectedConversation(newConversationRef.id);
     } catch (error) {
-      
+      console.error('Error creating conversation:', error);
     }
   };
   
@@ -361,7 +355,7 @@ export default function InboxScreen() {
       
       setMessageText('');
     } catch (error) {
-      
+      console.error('Error sending message:', error);
     }
   };
   
@@ -645,9 +639,9 @@ export default function InboxScreen() {
           timestamp: oldData.lastMessageTimestamp || Timestamp.now()
         }
       });
-      
+    
     } catch (error) {
-      
+      console.error(`Error migrating conversation ${conversationId}:`, error);
     }
   };
   

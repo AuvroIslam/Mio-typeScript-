@@ -4,27 +4,34 @@
     "slug": "Mio",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/adaptive-icon.png",
+    "icon": "./assets/images/finallogo.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/images/background_splash.jpg",
-      "resizeMode": "contain"
+      "image": "./assets/images/finallogo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mioapp.social",
-      "buildNumber": "1"
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#FFF8E8"
+        "foregroundImage": "./assets/images/finallogo.png",
+        "backgroundColor": "#ffffff"
       },
       "package": "com.mioapp.social",
       "versionCode": 1,
       "permissions": [
+        "INTERNET",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
         "INTERNET",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE"
@@ -33,18 +40,17 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/adaptive-icon.png"
+      "favicon": "./assets/images/finallogo.png"
     },
-      "plugins": [
-        "expo-router",
-        [
-          "@react-native-google-signin/google-signin",
-          {
-            "iosUrlScheme": "com.googleusercontent.apps._some_id_here_"
-          }
-        ],
-        
-    "expo-splash-screen"
+    "plugins": [
+      "expo-router",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps._some_id_here_"
+        }
+      ],
+      "expo-splash-screen"
     ],
     "experiments": {
       "typedRoutes": true
@@ -54,20 +60,15 @@
         "origin": false
       },
       "eas": {
-        "projectId": "18e84ef2-e63e-49ea-b001-d29ee68193e3"
+        "projectId": "867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"
       }
     },
-    "owner": "auvro_islam",
     "runtimeVersion": {
       "policy": "appVersion"
     },
+    "owner": "auvro2002",
     "updates": {
-      "url": "https://u.expo.dev/18e84ef2-e63e-49ea-b001-d29ee68193e3",
-      "enabled": true,
-      "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0,
-      "branch": "preview"
+      "url": "https://u.expo.dev/867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"
     }
-   
   }
 }

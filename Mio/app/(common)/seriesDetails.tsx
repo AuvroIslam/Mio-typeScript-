@@ -133,10 +133,7 @@ export default function SeriesDetailsScreen() {
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [forceRender, setForceRender] = useState(0); // Add a counter to force re-renders
 
-  // Force rerenders when favorites change
-  useEffect(() => {
-    // This will force re-render when userFavorites changes to update UI
-  }, [userFavorites]);
+
 
   // Helper function to convert ShowDetails to ShowItem for favorites functions
   const toShowItem = (details: ShowDetails): ShowItem => ({
@@ -278,6 +275,8 @@ export default function SeriesDetailsScreen() {
     // Convert ShowDetails to ShowItem format for favorites context
     const show = toShowItem(showDetails);
     
+    (`Series Details: Toggling favorite for ${show.title} (${show.id}), current status: ${isFavorite(show) ? 'favorite' : 'not favorite'}`);
+    
     setSelectedShowForFavorite(show);
     
     // Check if it's already a favorite
@@ -285,13 +284,16 @@ export default function SeriesDetailsScreen() {
     
     if (favorite) {
       // Show confirmation modal for removal
+      
       setConfirmModal(true);
     } else {
       // Add to favorites
+      (`Series Details: Show is not favorite, adding to favorites`);
       confirmAddToFavorites(
         show,
         // Success callback
         () => {
+        
           // Force a re-render to update UI
           refreshUserFavorites().then(() => {
             setForceRender(prev => prev + 1);
@@ -304,6 +306,7 @@ export default function SeriesDetailsScreen() {
         },
         // Error callback
         () => {
+          console.error(`Series Details: Failed to add ${show.title} to favorites`);
           setFeedbackModal({
             visible: true,
             message: 'Failed to add to favorites. Please try again.',
@@ -312,6 +315,7 @@ export default function SeriesDetailsScreen() {
         },
         // Limit callback
         () => {
+          console.warn(`Series Details: Favorites limit reached (${MAX_FAVORITES} maximum)`);
           setFeedbackModal({
             visible: true,
             message: `You can only add up to ${MAX_FAVORITES} favorites. Please remove some before adding more.`,
@@ -326,12 +330,15 @@ export default function SeriesDetailsScreen() {
   const handleConfirmRemoval = () => {
     if (!selectedShowForFavorite) return;
     
-    setConfirmModal(false);
+    
     
     confirmRemoveFromFavorites(
       selectedShowForFavorite,
       // Success callback
       () => {
+   
+        setConfirmModal(false);
+        // Force a re-render to update UI
         refreshUserFavorites().then(() => {
           setForceRender(prev => prev + 1);
           setFeedbackModal({
@@ -343,6 +350,8 @@ export default function SeriesDetailsScreen() {
       },
       // Error callback
       () => {
+        console.error(`Series Details: Failed to remove ${selectedShowForFavorite.title} from favorites`);
+        setConfirmModal(false);
         setFeedbackModal({
           visible: true,
           message: 'Failed to remove from favorites. Please try again.',
@@ -351,6 +360,8 @@ export default function SeriesDetailsScreen() {
       },
       // Cooldown callback
       (cooldownTime) => {
+        console.warn(`Series Details: Cooldown active (${cooldownTime}s) when trying to remove ${selectedShowForFavorite.title}`);
+        setConfirmModal(false);
         const minutes = Math.floor(cooldownTime / 60);
         const seconds = cooldownTime % 60;
         setFeedbackModal({
