@@ -4,7 +4,7 @@ import {
   View, 
   Text, 
   TouchableOpacity, 
-  ScrollView, 
+ 
   Image, 
   ActivityIndicator,
   Dimensions,
@@ -19,11 +19,11 @@ import { useFavorites } from '../../context/FavoritesContext';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
-import UserProfileScreen from '../(common)/userProfile';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width, height } = Dimensions.get('window');
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { logoutEventEmitter, LOGOUT_EVENT } from '../../context/AuthContext';
+
+const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.85;
 const CARD_HEIGHT = CARD_WIDTH * 1.3;
 
@@ -45,6 +45,7 @@ interface MatchCardProps {
 
 const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
   const [isUnmatching, setIsUnmatching] = useState(false);
+  const { isNewMatch } = useMatch();
   
   const confirmUnmatch = () => {
     Alert.alert(
@@ -69,23 +70,8 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
     );
   };
 
-  // Check if match is less than 24 hours old
-  const isNewMatch = () => {
-    if (!match.matchTimestamp) return false;
-    
-    // Convert Firestore timestamp to Date if necessary
-    const matchDate = match.matchTimestamp.toDate ? 
-      match.matchTimestamp.toDate() : 
-      new Date(match.matchTimestamp);
-    
-    const now = new Date();
-    const timeDiff = now.getTime() - matchDate.getTime();
-    const hoursDiff = timeDiff / (1000 * 60 * 60);
-    
-    return hoursDiff < 24;
-  };
-
-  const shouldBlurImage = isNewMatch();
+  // Use the shared isNewMatch function
+  const shouldBlurImage = isNewMatch(match.matchTimestamp);
 
   return (
     <TouchableOpacity
@@ -172,15 +158,16 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
 export default function MatchScreen() {
   const { 
     matches, 
+    chattingWith,
     isSearching, 
     cooldownEndTime, 
     searchMatches, 
     remainingTimeString,
-    lastSearchTime,
+   
     isLoading,
     error,
     unmatchUser,
-    loadPersistedMatches
+   
   } = useMatch();
   
   const { userFavorites } = useFavorites();
@@ -189,6 +176,11 @@ export default function MatchScreen() {
   const [newMatchCount, setNewMatchCount] = useState(0);
   const [showResultModal, setShowResultModal] = useState(false);
   const [matchesBeforeSearch, setMatchesBeforeSearch] = useState(0);
+  
+  // Filter out matches who are in chattingWith
+  const filteredMatches = matches.filter(match => 
+    !chattingWith.some(chat => chat.userId === match.userId)
+  );
   
   // Animation values
   const fadeAnim = useState(new Animated.Value(0))[0];
@@ -204,12 +196,12 @@ export default function MatchScreen() {
   }, [userFavorites]);
   
   useEffect(() => {
-    if (isFirstLoad && matches && matches.length > 0) {
+    if (isFirstLoad && filteredMatches && filteredMatches.length > 0) {
       setIsFirstLoad(false);
     }
     
     // Start animation when matches are loaded
-    if (matches && matches.length > 0) {
+    if (filteredMatches && filteredMatches.length > 0) {
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -223,7 +215,7 @@ export default function MatchScreen() {
         }),
       ]).start();
     }
-  }, [matches]);
+  }, [filteredMatches]);
   
   const handleSearch = async () => {
     // Reset animation values
@@ -231,9 +223,8 @@ export default function MatchScreen() {
     scaleAnim.setValue(0.9);
     
     // Store the current match count to calculate new matches later
-    const currentMatchCount = matches.length;
+    const currentMatchCount = filteredMatches.length;
     setMatchesBeforeSearch(currentMatchCount);
-    
     
     try {
       // Search for matches - the useEffect will handle showing notifications
@@ -278,7 +269,7 @@ export default function MatchScreen() {
   useEffect(() => {
     if (isSearching === false && matchesBeforeSearch > 0) {
       // Calculate new matches after search completes
-      const newMatches = matches.length - matchesBeforeSearch;
+      const newMatches = filteredMatches.length - matchesBeforeSearch;
 
       
       if (newMatches !== newMatchCount) {
@@ -294,7 +285,7 @@ export default function MatchScreen() {
       // Reset matchesBeforeSearch after processing
       setMatchesBeforeSearch(0);
     }
-  }, [matches, isSearching, matchesBeforeSearch, newMatchCount]);
+  }, [filteredMatches, isSearching, matchesBeforeSearch, newMatchCount]);
   
   // Render loading modal
   const renderLoadingModal = () => {
@@ -450,13 +441,13 @@ export default function MatchScreen() {
   };
   
   const renderMatchList = () => {
-    if (!matches || matches.length === 0) {
+    if (!filteredMatches || filteredMatches.length === 0) {
       return renderEmptyState();
     }
     
     return (
       <FlatList
-        data={matches}
+        data={filteredMatches}
         keyExtractor={(item) => item.userId}
         renderItem={({ item }) => (
           <Animated.View
@@ -477,6 +468,24 @@ export default function MatchScreen() {
       />
     );
   };
+  
+  useEffect(() => {
+    const handleLogout = () => {
+      // Clean up state on logout
+      setIsFirstLoad(true);
+      setNewMatchCount(0);
+      setShowResultModal(false);
+      setMatchesBeforeSearch(0);
+    };
+
+    // Listen for logout events
+    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
+
+    // Clean up
+    return () => {
+      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
+    };
+  }, []);
   
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

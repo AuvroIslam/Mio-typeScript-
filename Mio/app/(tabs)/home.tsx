@@ -28,6 +28,7 @@ import * as Haptics from 'expo-haptics';
 import icon from '../../assets/images/icon.png';
 import mioLogo from '../../assets/images/mioLogo.png';
 import { useFavorites } from '../../context/FavoritesContext';
+import { logoutEventEmitter, LOGOUT_EVENT } from '../../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.42;
@@ -501,6 +502,35 @@ export default function HomeScreen() {
       </TouchableOpacity>
     );
   };
+
+  // Inside the HomeScreen component, add this useEffect for logout handling
+  useEffect(() => {
+    const handleLogout = () => {
+      // Clean up state on logout
+      setSearchQuery('');
+      setIsSearching(false);
+      setSearchResults([]);
+      setTrendingShows([]);
+      setIsLoading(false);
+      setSelectedShowForFavorite(null);
+      setRefreshing(false);
+      setFeedbackModal({
+        visible: false,
+        message: '',
+        type: 'success'
+      });
+      setConfirmAddModal(false);
+      setConfirmRemoveModal(false);
+    };
+
+    // Listen for logout events
+    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
+
+    // Clean up
+    return () => {
+      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
+    };
+  }, []);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>

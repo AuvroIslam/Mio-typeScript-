@@ -2,7 +2,7 @@ import React, { createContext, useState, useContext, useEffect, useCallback } fr
 import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, Timestamp, increment, setDoc } from 'firebase/firestore';
 import { AppState, AppStateStatus } from 'react-native';
 import { db } from '../config/firebaseConfig';
-import { useAuth } from './AuthContext';
+import { useAuth, logoutEventEmitter, LOGOUT_EVENT } from './AuthContext';
 import * as Haptics from 'expo-haptics';
 
 // Constants
@@ -408,6 +408,21 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     // Remove from favorites
     removeFromFavorites(show, onSuccess, onError);
   };
+
+  useEffect(() => {
+    const handleLogout = () => {
+      // Reset state on logout
+      resetState();
+    };
+
+    // Listen for logout events
+    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
+
+    // Clean up
+    return () => {
+      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
+    };
+  }, [resetState]);
 
   return (
     <FavoritesContext.Provider

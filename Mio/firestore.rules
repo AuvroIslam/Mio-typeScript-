@@ -15,8 +15,8 @@ service cloud.firestore {
       // First-time profile creation or general profile updates
       allow update: if request.auth != null && (
         request.auth.uid == userId || 
-        // Simplified rule for matches and blockedUsers updates
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['matches', 'blockedUsers']))
+        // Simplified rule for matches, chattingWith, and blockedUsers updates
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['matches', 'chattingWith', 'blockedUsers']))
       );
       
       allow delete: if request.auth != null && request.auth.uid == userId;

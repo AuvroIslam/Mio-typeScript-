@@ -15,10 +15,11 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '../../constants/Colors';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
-import { MatchLevel } from '../../context/MatchContext';
+import { MatchLevel, useMatch } from '../../context/MatchContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { logoutEventEmitter, LOGOUT_EVENT } from '../../context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
@@ -60,18 +61,14 @@ export default function UserProfileScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Check if match is less than 24 hours old
-  const isNewMatch = () => {
-    if (!matchTimestamp) return false;
-    
-    const now = new Date();
-    const timeDiff = now.getTime() - matchTimestamp.getTime();
-    const hoursDiff = timeDiff / (1000 * 60 * 60);
-    
-    return hoursDiff < 24;
-  };
+  // Use the shared isNewMatch function from context
+  const { isNewMatch } = useMatch();
   
-  const shouldBlurImages = isNewMatch();
+  // Convert matchTimestamp to Firestore Timestamp format if needed
+  const firestoreTimestamp = matchTimestamp ? Timestamp.fromDate(matchTimestamp) : null;
+  
+  // Check if images should be blurred
+  const shouldBlurImages = isNewMatch(firestoreTimestamp);
   
   useEffect(() => {
     if (userId) {
@@ -79,6 +76,24 @@ export default function UserProfileScreen() {
       fetchAllShows();
     }
   }, [userId]);
+  
+  useEffect(() => {
+    const handleLogout = () => {
+      // Clean up state on logout
+      setProfile(null);
+      setAllShows([]);
+      setIsLoading(false);
+      setError(null);
+    };
+
+    // Listen for logout events
+    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
+
+    // Clean up
+    return () => {
+      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
+    };
+  }, []);
   
   const fetchUserProfile = async () => {
     try {

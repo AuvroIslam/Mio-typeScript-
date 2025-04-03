@@ -10,7 +10,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Alert
+  Alert,
+  Modal
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,6 +38,7 @@ import {
   startAfter
 } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
+import { logoutEventEmitter, LOGOUT_EVENT } from '../../context/AuthContext';
 
 // Constants to optimize Firestore usage
 const MESSAGES_PER_BATCH = 10; // Number of messages to fetch per pagination
@@ -165,7 +167,7 @@ function useMessages(conversation: Conversation | null, user: any) {
 
 export default function ChatScreen() {
   const { user } = useAuth();
-  const { matches } = useMatch();
+  const {  unmatchUser, blockUser, moveToChattingWith, isNewMatch, chattingWith } = useMatch();
   const params = useLocalSearchParams();
   const conversationId = params.conversationId as string;
   const matchId = params.matchId as string; // User ID we want to chat with (from profile)
@@ -181,6 +183,9 @@ export default function ChatScreen() {
   });
   const [unsubscribeConversation, setUnsubscribeConversation] = useState<() => void | null>(() => null);
   const [unsubscribeMessages, setUnsubscribeMessages] = useState<() => void | null>(() => null);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [isUnmatching, setIsUnmatching] = useState(false);
+  const [isBlocking, setIsBlocking] = useState(false);
   
   // Cache reference
   const cachedConversationId = useRef<string | null>(null);
@@ -237,6 +242,9 @@ export default function ChatScreen() {
           const existingConversationId = await findOrCreateConversation(matchId);
           if (existingConversationId) {
             await loadExistingConversation(existingConversationId);
+            
+            // Move the match to chattingWith since we're starting a conversation
+            await moveToChattingWith(matchId);
           }
         }
       } catch (error) {
@@ -256,7 +264,7 @@ export default function ChatScreen() {
         AsyncStorage.setItem(lastReadKey, new Date().toISOString());
       }
     };
-  }, [user, conversationId, matchId]);
+  }, [user, conversationId, matchId, moveToChattingWith]);
   
   // Find existing conversation or create a new one
   const findOrCreateConversation = async (otherUserId: string) => {
@@ -272,7 +280,20 @@ export default function ChatScreen() {
         const cacheAge = Date.now() - timestamp;
         
         if (cacheAge < CACHE_EXPIRY) {
-          return conversationId;
+          try {
+            // Verify the conversation still exists and user has access
+            const conversationDoc = await getDoc(doc(db, 'conversations', conversationId));
+            if (conversationDoc.exists()) {
+              return conversationId;
+            } else {
+              // Conversation no longer exists, clear cache
+              await AsyncStorage.removeItem(cacheKey);
+            }
+          } catch (error) {
+            console.log("Error checking cached conversation:", error);
+            // Clear invalid cache if we get permission errors
+            await AsyncStorage.removeItem(cacheKey);
+          }
         }
       }
       
@@ -283,23 +304,29 @@ export default function ChatScreen() {
         where('participants', 'array-contains', user.uid)
       );
       
-      const querySnapshot = await getDocs(q);
       let existingConversationId: string | null = null;
       
-      querySnapshot.forEach((docSnapshot) => {
-        const data = docSnapshot.data();
-        if (data.participants && data.participants.includes(otherUserId)) {
-          existingConversationId = docSnapshot.id;
+      try {
+        const querySnapshot = await getDocs(q);
+        
+        querySnapshot.forEach((docSnapshot) => {
+          const data = docSnapshot.data();
+          if (data.participants && data.participants.includes(otherUserId)) {
+            existingConversationId = docSnapshot.id;
+          }
+        });
+        
+        if (existingConversationId) {
+          // Update cache
+          await AsyncStorage.setItem(cacheKey, JSON.stringify({
+            conversationId: existingConversationId,
+            timestamp: Date.now()
+          }));
+          return existingConversationId;
         }
-      });
-      
-      if (existingConversationId) {
-        // Update cache
-        await AsyncStorage.setItem(cacheKey, JSON.stringify({
-          conversationId: existingConversationId,
-          timestamp: Date.now()
-        }));
-        return existingConversationId;
+      } catch (error) {
+        console.error("Error querying conversations:", error);
+        // Don't return here, continue to create a new conversation
       }
       
       // Get user information for both participants
@@ -371,38 +398,60 @@ export default function ChatScreen() {
       // Set cached conversation ID
       cachedConversationId.current = id;
       
-      
-      
-      
-      
       // Listen for conversation updates - using onSnapshot only for real-time critical data
-      const unsub = onSnapshot(doc(db, 'conversations', id), (docSnapshot) => {
-        if (docSnapshot.exists()) {
-          const conversationData = docSnapshot.data() as Conversation;
-          conversationData.id = docSnapshot.id;
-          setConversation(conversationData);
-          
-          // Set other user's information
-          const otherParticipantId = conversationData.participants.find(p => p !== user.uid) || '';
-          setOtherUser({
-            id: otherParticipantId,
-            name: conversationData.participantNames[otherParticipantId] || 'User',
-            photo: conversationData.participantPhotos[otherParticipantId] || '',
-            matchTimestamp: conversationData.lastMessage?.timestamp
-          });
-          
-          // Mark messages as read if needed
-          const unreadCount = conversationData.unreadCount?.[user.uid] || 0;
-          if (unreadCount > 0) {
-            markMessagesAsRead(id);
+      const unsub = onSnapshot(
+        doc(db, 'conversations', id), 
+        (docSnapshot) => {
+          if (docSnapshot.exists()) {
+            const conversationData = docSnapshot.data() as Conversation;
+            conversationData.id = docSnapshot.id;
+            setConversation(conversationData);
+            
+            // Set other user's information
+            const otherParticipantId = conversationData.participants.find(p => p !== user.uid) || '';
+            setOtherUser({
+              id: otherParticipantId,
+              name: conversationData.participantNames[otherParticipantId] || 'User',
+              photo: conversationData.participantPhotos[otherParticipantId] || '',
+              matchTimestamp: conversationData.lastMessage?.timestamp
+            });
+            
+            // Mark messages as read if needed
+            const unreadCount = conversationData.unreadCount?.[user.uid] || 0;
+            if (unreadCount > 0) {
+              markMessagesAsRead(id);
+            }
           }
+          
+          // Only load messages if they haven't been loaded yet
+          if (messages.length === 0) {
+            loadMessages(id);
+          }
+        },
+        (error) => {
+          console.error('Error listening to conversation:', error);
+          
+          // Handle permission errors by removing from cache and redirecting
+          if (error.code === 'permission-denied' && user) {
+            const otherParticipantId = otherUser.id;
+            if (otherParticipantId) {
+              const cacheKey = `conversation_${user.uid}_${otherParticipantId}`;
+              AsyncStorage.removeItem(cacheKey).then(() => {
+                // Navigate back to inbox
+                Alert.alert(
+                  "Access Error", 
+                  "You no longer have access to this conversation. Returning to inbox.",
+                  [{ text: "OK", onPress: () => router.replace('/(tabs)/inbox') }]
+                );
+              });
+            } else {
+              router.replace('/(tabs)/inbox');
+            }
+          }
+          
+          setIsLoading(false);
         }
-        
-        // Only load messages if they haven't been loaded yet
-        if (messages.length === 0) {
-          loadMessages(id);
-        }
-      });
+      );
       
       setUnsubscribeConversation(() => unsub);
     } catch (error) {
@@ -534,22 +583,6 @@ export default function ChatScreen() {
     }
   };
   
-  // Check if match is less than 24 hours old
-  const isNewMatch = () => {
-    if (!otherUser?.matchTimestamp) return false;
-    
-    // Convert Firestore timestamp to Date if necessary
-    const matchDate = otherUser.matchTimestamp.toDate ? 
-      otherUser.matchTimestamp.toDate() : 
-      new Date(otherUser.matchTimestamp);
-    
-    const now = new Date();
-    const timeDiff = now.getTime() - matchDate.getTime();
-    const hoursDiff = timeDiff / (1000 * 60 * 60);
-    
-    return hoursDiff < 24;
-  };
-  
   // Format message timestamp
   const formatMessageTime = (timestamp: Timestamp) => {
     const date = timestamp.toDate();
@@ -603,6 +636,179 @@ export default function ChatScreen() {
     );
   };
   
+  const handleUnmatch = async () => {
+    if (!otherUser.id) return;
+    
+    Alert.alert(
+      "Unmatch",
+      `Are you sure you want to unmatch with ${otherUser.name}? This will delete your conversation and remove them from your matches.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Unmatch", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setIsUnmatching(true);
+              
+              // Clear conversation cache for this user
+              if (user) {
+                const cacheKey = `conversation_${user.uid}_${otherUser.id}`;
+                await AsyncStorage.removeItem(cacheKey);
+              }
+              
+              // Clean up listeners before unmatch to prevent errors
+              if (unsubscribeConversation) unsubscribeConversation();
+              if (unsubscribeMessages) unsubscribeMessages();
+              
+              await unmatchUser(otherUser.id);
+              router.replace('/(tabs)/inbox');
+            } catch (error) {
+              console.error('Error unmatching user:', error);
+              Alert.alert('Error', 'Failed to unmatch user. Please try again.');
+            } finally {
+              setIsUnmatching(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+  
+  const handleBlock = async () => {
+    if (!otherUser.id) return;
+    
+    Alert.alert(
+      "Block User",
+      `Are you sure you want to block ${otherUser.name}? They will be removed from your matches and you won't be matched with them in the future.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Block", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setIsBlocking(true);
+              
+              // Clear conversation cache for this user
+              if (user) {
+                const cacheKey = `conversation_${user.uid}_${otherUser.id}`;
+                await AsyncStorage.removeItem(cacheKey);
+              }
+              
+              // Clean up listeners before block to prevent errors
+              if (unsubscribeConversation) unsubscribeConversation();
+              if (unsubscribeMessages) unsubscribeMessages();
+              
+              await blockUser(otherUser.id);
+              router.replace('/(tabs)/inbox');
+            } catch (error) {
+              console.error('Error blocking user:', error);
+              Alert.alert('Error', 'Failed to block user. Please try again.');
+            } finally {
+              setIsBlocking(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+  
+  // Render the options menu
+  const renderOptionsMenu = () => {
+    return (
+      <Modal
+        visible={showOptionsMenu}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowOptionsMenu(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowOptionsMenu(false)}
+        >
+          <View style={styles.optionsContainer}>
+            <TouchableOpacity 
+              style={styles.optionItem}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                handleUnmatch();
+              }}
+              disabled={isUnmatching}
+            >
+              {isUnmatching ? (
+                <ActivityIndicator size="small" color={COLORS.secondary} style={styles.optionIcon} />
+              ) : (
+                <Ionicons name="person-remove" size={24} color={COLORS.secondary} style={styles.optionIcon} />
+              )}
+              <Text style={styles.optionText}>Unmatch</Text>
+            </TouchableOpacity>
+            
+            <View style={styles.optionDivider} />
+            
+            <TouchableOpacity
+              style={styles.optionItem}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                handleBlock();
+              }}
+              disabled={isBlocking}
+            >
+              {isBlocking ? (
+                <ActivityIndicator size="small" color={COLORS.error} style={styles.optionIcon} />
+              ) : (
+                <Ionicons name="ban" size={24} color={COLORS.error} style={styles.optionIcon} />
+              )}
+              <Text style={[styles.optionText, { color: COLORS.error }]}>Block User</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    );
+  };
+  
+  const backToInbox = () => {
+    // Clean up before navigating away
+    if (user && otherUser.id) {
+      const cacheKey = `conversation_${user.uid}_${otherUser.id}`;
+      
+      // Check if conversation exists before navigating
+      if (conversation) {
+        // Only store last read time for valid conversations
+        const lastReadKey = `lastRead_${conversation.id}_${user.uid}`;
+        AsyncStorage.setItem(lastReadKey, new Date().toISOString());
+      } else {
+        // If no conversation, clear any cached conversation IDs
+        AsyncStorage.removeItem(cacheKey);
+      }
+    }
+    
+    // Navigate based on where the user came from
+    if (fromInbox === 'true') {
+      router.replace('/(tabs)/inbox');
+    } else {
+      router.back();
+    }
+  };
+  
+  // Add this useEffect for logout handling after the other useEffects
+  useEffect(() => {
+    const handleLogout = () => {
+      // Clean up all Firebase listeners when user logs out
+      if (unsubscribeConversation) unsubscribeConversation();
+      if (unsubscribeMessages) unsubscribeMessages();
+    };
+
+    // Listen for logout events
+    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
+
+    // Clean up
+    return () => {
+      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
+    };
+  }, [unsubscribeConversation, unsubscribeMessages]);
+  
   // Loading state
   if (isLoading) {
     return (
@@ -615,18 +821,14 @@ export default function ChatScreen() {
   
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Options Menu Modal */}
+      {renderOptionsMenu()}
+      
       {/* Chat header */}
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
-          onPress={() => {
-            // Navigate based on where the user came from
-            if (fromInbox === 'true') {
-              router.replace('/(tabs)/inbox');
-            } else {
-              router.back();
-            }
-          }}
+          onPress={backToInbox}
         >
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
@@ -635,10 +837,30 @@ export default function ChatScreen() {
           style={styles.profileButton}
           onPress={() => {
             if (otherUser.id) {
-              // Find match data from matches array
-              const matchData = matches.find(match => match.userId === otherUser.id);
+              // First try to find the user in matches array
+              let matchData = chattingWith.find(chat => chat.userId === otherUser.id);
+              
+              // If not found in matches, check in chattingWith array
+              
               
               if (matchData) {
+                // Ensure consistent timestamp handling
+                let timestampString = '';
+                if (matchData.matchTimestamp) {
+                  // Handle Firestore timestamp
+                  if (matchData.matchTimestamp.toDate) {
+                    timestampString = matchData.matchTimestamp.toDate().toISOString();
+                  } 
+                  // Handle Date object
+                  else if (matchData.matchTimestamp instanceof Date) {
+                    timestampString = matchData.matchTimestamp.toISOString();
+                  }
+                  // Handle string
+                  else if (typeof matchData.matchTimestamp === 'string') {
+                    timestampString = matchData.matchTimestamp;
+                  }
+                }
+                
                 router.push({
                   pathname: '/(common)/userProfile',
                   params: { 
@@ -646,10 +868,7 @@ export default function ChatScreen() {
                     matchLevel: matchData.matchLevel,
                     commonShows: matchData.commonShowIds.join(','),
                     favoriteShows: matchData.favoriteShowIds ? matchData.favoriteShowIds.join(',') : '',
-                    matchTimestamp: matchData.matchTimestamp ? 
-                      matchData.matchTimestamp.toDate ? 
-                      matchData.matchTimestamp.toDate().toISOString() : 
-                      matchData.matchTimestamp.toString() : ''
+                    matchTimestamp: timestampString
                   }
                 });
               } else {
@@ -662,16 +881,14 @@ export default function ChatScreen() {
           }}
         >
           <View style={styles.avatarContainer}>
-            {isNewMatch() ? (
+            {isNewMatch(otherUser.matchTimestamp) ? (
               <View style={styles.avatarBlurContainer}>
                 <Image 
                   source={{ uri: otherUser.photo || 'https://via.placeholder.com/40' }} 
                   style={[styles.avatar,]}
                   blurRadius={40}
                 />
-                <View style={styles.blurBadgeContainer}>
-                  <Text style={styles.blurBadgeText}>24h</Text>
-                </View>
+               
               </View>
             ) : (
               <Image 
@@ -681,6 +898,14 @@ export default function ChatScreen() {
             )}
           </View>
           <Text style={styles.userName}>{otherUser.name}</Text>
+        </TouchableOpacity>
+        
+        {/* Options Button */}
+        <TouchableOpacity 
+          style={styles.optionsButton}
+          onPress={() => setShowOptionsMenu(true)}
+        >
+          <Ionicons name="ellipsis-vertical" size={24} color={COLORS.secondary} />
         </TouchableOpacity>
       </View>
       
@@ -806,17 +1031,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderRadius: 20,
   },
-  blurBadgeContainer: {
-    paddingVertical: 2,
-    paddingHorizontal: 5,
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-  },
-  blurBadgeText: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
+
   userName: {
     fontSize: 18,
     fontWeight: '600',
@@ -904,5 +1119,44 @@ const styles = StyleSheet.create({
   loadMoreText: {
     color: COLORS.secondary,
     fontWeight: '600',
+  },
+  optionsButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  optionsContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    marginHorizontal: 8,
+    marginBottom: 8,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  optionIcon: {
+    marginRight: 16,
+  },
+  optionText: {
+    fontSize: 16,
+    color: COLORS.secondary,
+    fontWeight: '500',
+  },
+  optionDivider: {
+    height: 1,
+    backgroundColor: '#e5e5e5',
+    marginVertical: 8,
   },
 }); 
