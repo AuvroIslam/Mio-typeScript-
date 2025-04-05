@@ -526,7 +526,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: Platform.OS === 'ios' ? 50 : 40,
     right: 20,
-    alignItems: 'center',
+    alignItems: 'flex-end',
   },
   matchBadge: {
     flexDirection: 'row',
@@ -534,7 +534,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.secondary,
   },
   superMatchBadge: {
     backgroundColor: COLORS.secondary,
@@ -556,6 +556,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     fontSize: 12,
+    textAlign: 'right',
+    alignSelf: 'flex-end',
   },
   profileHeader: {
     position: 'absolute',
@@ -677,7 +679,7 @@ const styles = StyleSheet.create({
   showTypeBadgeText: {
     fontSize: 10,
     fontWeight: 'bold',
-    color: COLORS.text.primary,
+    color: COLORS.secondary,
   },
   mutualBadge: {
     position: 'absolute',
@@ -746,6 +748,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 3,
     elevation: 5,
+    zIndex: 10,
   },
   chatButtonText: {
     color: '#FFF',

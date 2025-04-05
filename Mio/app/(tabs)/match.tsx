@@ -624,10 +624,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   regularMatchBadge: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.secondary,
   },
   superMatchBadge: {
-    backgroundColor: COLORS.secondary,
+    backgroundColor: COLORS.primary,
   },
   matchBadgeText: {
     color: '#FFF',

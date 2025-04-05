@@ -63,9 +63,7 @@
         "projectId": "867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"
       }
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "owner": "auvro2002",
     "updates": {
       "url": "https://u.expo.dev/867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"

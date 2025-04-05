@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, Timestamp, increment, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, Timestamp,  setDoc } from 'firebase/firestore';
 import { AppState, AppStateStatus } from 'react-native';
 import { db } from '../config/firebaseConfig';
 import { useAuth, logoutEventEmitter, LOGOUT_EVENT } from './AuthContext';
@@ -206,10 +206,10 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const showUserRef = doc(db, 'showUsers', showId);
       const showUserDoc = await getDoc(showUserRef);
       
-      const now = Timestamp.now();
+     
       const entry = {
         userId: user.uid,
-        timestamp: now
+        
       };
       
       if (showUserDoc.exists()) {
@@ -219,9 +219,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           const userIndex = users.findIndex((u: any) => u.userId === user.uid);
           
           if (userIndex >= 0) {
-            // User already exists, update timestamp
-            users[userIndex].timestamp = now;
-            await updateDoc(showUserRef, { users });
+            
           } else {
             // Add user to array
             await updateDoc(showUserRef, {

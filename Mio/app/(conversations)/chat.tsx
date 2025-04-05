@@ -992,7 +992,7 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 8,
-    backgroundColor: COLORS.secondary,
+    backgroundColor: COLORS.primary,
     borderRadius: 20,
     width: 40,
     height: 40,

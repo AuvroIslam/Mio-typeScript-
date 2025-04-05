@@ -618,12 +618,6 @@ export default function EditProfileScreen() {
                       style={styles.additionalPhoto} 
                     />
                     <TouchableOpacity
-                      style={styles.photoEditButton}
-                      onPress={() => handleSelectAdditionalPic(index)}
-                    >
-                      <Ionicons name="create-outline" size={16} color="#FFF" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
                       style={styles.photoRemoveButton}
                       onPress={() => handleRemoveAdditionalPic(index)}
                     >
@@ -881,7 +875,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.darkMaroon,
   },
   optionButtonSelected: {
-    backgroundColor: COLORS.secondary,
+    backgroundColor: COLORS.primary,
   },
   optionButtonText: {
     fontSize: 14,
@@ -910,26 +904,14 @@ const styles = StyleSheet.create({
     flex: 1,
     resizeMode: 'cover',
   },
-  photoEditButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: COLORS.secondary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 1,
-  },
   photoRemoveButton: {
     position: 'absolute',
     top: 8,
     left: 8,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 76, 76, 0.8)',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: COLORS.primary,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1,

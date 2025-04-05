@@ -18,7 +18,7 @@ import { AppState, AppStateStatus } from 'react-native';
 import { db } from '../config/firebaseConfig';
 import { useAuth } from './AuthContext';
 import { useFavorites } from './FavoritesContext';
-import { useRegistration } from './RegistrationContext';
+
 import * as Haptics from 'expo-haptics';
 import { logoutEventEmitter, LOGOUT_EVENT } from './AuthContext';
 
@@ -297,8 +297,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       const showUserRef = doc(db, 'showUsers', showId);
       const showUserDoc = await getDoc(showUserRef);
       
-      const now = Timestamp.now();
-      
       if (showUserDoc.exists()) {
         const data = showUserDoc.data();
         const users = data.users || [];
@@ -306,24 +304,18 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         // Check if user is already in the list
         const userExists = users.some((u: any) => u.userId === user.uid);
         
-        if (userExists) {
-          // User exists, update timestamp
+        if (!userExists) {
+          // User doesn't exist, add to list (without timestamp)
           await updateDoc(showUserRef, {
-            users: users.map((u: any) => 
-              u.userId === user.uid ? { userId: user.uid, timestamp: now } : u
-            )
-          });
-        } else {
-          // User doesn't exist, add to list
-          await updateDoc(showUserRef, {
-            users: [...users, { userId: user.uid, timestamp: now }]
+            users: arrayUnion({ userId: user.uid })
           });
         }
+        // If user exists, do nothing - no need to update timestamp
       } else {
-        // Document doesn't exist, create it
+        // Document doesn't exist, create it (without timestamp)
         await setDoc(showUserRef, {
           showId,
-          users: [{ userId: user.uid, timestamp: now }]
+          users: [{ userId: user.uid }]
         });
       }
     } catch (error) {

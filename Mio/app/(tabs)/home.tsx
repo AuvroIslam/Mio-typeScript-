@@ -464,7 +464,7 @@ export default function HomeScreen() {
             <Text 
               style={[
                 styles.typeLabelText, 
-                {color: item.type === 'anime' ? COLORS.text.primary : COLORS.secondary}
+                {color: COLORS.secondary}
               ]}
             >
               {item.type === 'anime' ? '🍡 Anime' : '🧋 K-Drama'}

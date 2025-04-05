@@ -531,7 +531,7 @@ export default function InboxScreen() {
               <Image
                 source={{ uri: item.profilePic || 'https://via.placeholder.com/60' }}
                 style={styles.matchAvatar}
-                blurRadius={30}
+                blurRadius={40}
               />
               
             </View>
@@ -934,7 +934,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    borderWidth: 2,
+    borderWidth: .5,
     borderColor: COLORS.secondary,
   },
  
