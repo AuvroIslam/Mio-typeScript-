@@ -337,13 +337,15 @@ export default function InboxScreen() {
       // Get current user's profile data (we need this for the profile picture)
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       const userProfile = userDoc.data()?.profile || {};
+
+     
       
       // Create new conversation
       const conversationRef = doc(collection(db, 'conversations'));
-      await setDoc(conversationRef, {
+      const conversationData = {
         participants: [user.uid, match.userId],
         participantNames: {
-          [user.uid]: user.displayName || 'You',
+          [user.uid]: userProfile.displayName || 'Unknown User',
           [match.userId]: match.displayName || 'User'
         },
         participantPhotos: {
@@ -360,7 +362,11 @@ export default function InboxScreen() {
           [user.uid]: 0,
           [match.userId]: 0
         }
-      });
+      };
+
+    
+
+      await setDoc(conversationRef, conversationData);
       
       // Move match to chattingWith array when creating a new conversation
       moveToChattingWith(match.userId);

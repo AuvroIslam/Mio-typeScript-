@@ -2,6 +2,7 @@
 import { initializeApp } from "firebase/app";
 import { initializeAuth, getReactNativePersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // Note: We're not using Firebase Storage in this app
 // Instead, we store image URLs from Cloudinary in Firestore
@@ -25,5 +26,7 @@ const auth = initializeAuth(app, {
   persistence: getReactNativePersistence(AsyncStorage)
 });
 const db = getFirestore(app);
+// Initialize Storage
+const storage = getStorage(app);
 
-export { auth, db }; 
+export { auth, db, storage }; 

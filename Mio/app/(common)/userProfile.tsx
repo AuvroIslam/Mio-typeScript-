@@ -205,20 +205,11 @@ export default function UserProfileScreen() {
       <ScrollView style={styles.scrollView}>
         {/* Header with profile image */}
         <View style={styles.headerContainer}>
-          {shouldBlurImages ? (
-            <View style={styles.blurImageContainer}>
-              <Image 
-                source={{ uri: profile.profilePic }}
-                style={[styles.profileImage, ]}
-                blurRadius={40}
-              />
-            </View>
-          ) : (
-            <Image 
-              source={{ uri: profile.profilePic }} 
-              style={styles.profileImage} 
-            />
-          )}
+          <Image 
+            source={{ uri: profile.profilePic }} 
+            style={styles.profileImage}
+            blurRadius={shouldBlurImages ? 40 : 0}
+          />
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.8)']}
             style={styles.profileGradient}
@@ -427,20 +418,11 @@ export default function UserProfileScreen() {
               >
                 {profile.additionalPics.map((photo, index) => (
                   <View key={index} style={styles.photoWrapper}>
-                    {shouldBlurImages ? (
-                      <View style={styles.photoBlurContainer}>
-                        <Image 
-                          source={{ uri: photo }}
-                          style={styles.additionalPhoto}
-                          blurRadius={40}
-                        />
-                      </View>
-                    ) : (
-                      <Image 
-                        source={{ uri: photo }} 
-                        style={styles.additionalPhoto}
-                      />
-                    )}
+                    <Image 
+                      source={{ uri: photo }} 
+                      style={styles.additionalPhoto}
+                      blurRadius={shouldBlurImages ? 40 : 0}
+                    />
                   </View>
                 ))}
               </ScrollView>
@@ -765,6 +747,7 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     overflow: 'hidden',
+    backgroundColor: 'transparent',
   },
   photosContainer: {
     paddingVertical: 12,
@@ -774,26 +757,12 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     borderRadius: 12,
     overflow: 'hidden',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.2,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
-  photoBlurContainer: {
-    position: 'relative',
-    overflow: 'hidden',
-    borderRadius: 12,
-  },
-  additionalPhoto: {
     width: width * 0.4,
     height: width * 0.4,
-    borderRadius: 12,
+    backgroundColor: 'transparent',
+  },
+  additionalPhoto: {
+    width: '100%',
+    height: '100%',
   },
 }); 

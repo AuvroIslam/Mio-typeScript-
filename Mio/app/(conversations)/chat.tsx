@@ -37,8 +37,11 @@ import {
   increment,
   startAfter
 } from 'firebase/firestore';
-import { db } from '../../config/firebaseConfig';
+import { getFunctions } from 'firebase/functions';
+import { db, storage } from '../../config/firebaseConfig';
 import { logoutEventEmitter, LOGOUT_EVENT } from '../../context/AuthContext';
+import { ref, getBytes } from 'firebase/storage';
+import { loadArchivedMessages as fetchArchivedMessages, triggerManualArchive } from '../../lib/archiveUtils';
 
 // Constants to optimize Firestore usage
 const MESSAGES_PER_BATCH = 10; // Number of messages to fetch per pagination
@@ -52,6 +55,7 @@ interface Message {
   senderName: string;
   timestamp: Timestamp;
   read: boolean;
+  isSeparator?: boolean;
 }
 
 interface MessageBatch {
@@ -73,14 +77,23 @@ interface Conversation {
   unreadCount: {[uid: string]: number};
   currentBatchId?: string; // Track current batch for more efficient writes
   messageCount?: number; // Track total message count
+  archives?: { 
+    path: string;
+    count?: number;
+    oldestTimestamp?: any;
+    newestTimestamp?: any;
+    createdAt?: any;
+  }[]; // Added for new functionality
 }
 
 // Custom hook for managing messages
 function useMessages(conversation: Conversation | null, user: any) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isLoadingArchive, setIsLoadingArchive] = useState(false);
   const [canLoadMore, setCanLoadMore] = useState(true);
   const [lastVisible, setLastVisible] = useState<any>(null);
+  const [currentArchiveIndex, setCurrentArchiveIndex] = useState(0);
   
   // Load messages with pagination
   const loadMessages = useCallback(async (convId: string, loadMore = false) => {
@@ -88,19 +101,23 @@ function useMessages(conversation: Conversation | null, user: any) {
     
     try {
       setIsLoadingMore(true);
+     
       
-      // Query message batches instead of individual messages
+      // Query message batches - strict limit on initial load
       const batchesRef = collection(db, `conversations/${convId}/messageBatches`);
-      let q = query(batchesRef, orderBy('endTime', 'desc'), limit(MESSAGES_PER_BATCH));
+      const batchLimit = loadMore ? MESSAGES_PER_BATCH : Math.min(MESSAGES_PER_BATCH,10);
+      let q = query(batchesRef, orderBy('endTime', 'desc'), limit(batchLimit));
       
       // If loading more, start after the last visible item
       if (loadMore && lastVisible) {
-        q = query(batchesRef, orderBy('endTime', 'desc'), limit(MESSAGES_PER_BATCH), 
+        q = query(batchesRef, orderBy('endTime', 'desc'), limit(batchLimit), 
           // @ts-ignore - Type issue with startAfter
           startAfter(lastVisible));
       }
       
       const querySnapshot = await getDocs(q);
+     
+      
       const batches: MessageBatch[] = [];
       let lastDoc = null;
       
@@ -121,12 +138,14 @@ function useMessages(conversation: Conversation | null, user: any) {
         }
       });
       
-      // Sort messages by timestamp
+      // Sort messages by timestamp (newest to oldest for inverted list)
       allMessages.sort((a, b) => {
         const timeA = a.timestamp.toMillis();
         const timeB = b.timestamp.toMillis();
-        return timeA - timeB;
+        return timeB - timeA; // Newest messages first for inverted list
       });
+      
+  
       
       // Update state
       if (loadMore) {
@@ -136,32 +155,325 @@ function useMessages(conversation: Conversation | null, user: any) {
       }
       
       setLastVisible(lastDoc);
-      setCanLoadMore(querySnapshot.size >= MESSAGES_PER_BATCH);
+      
+      // If no more Firestore messages but there are archives, we'll load from archives next
+      if (querySnapshot.size < batchLimit) {
+        // Check if conversation has archives
+        if (conversation?.archives && conversation.archives.length > 0) {
+     
+          setCanLoadMore(true); // We can still load from archives
+        } else {
+          setCanLoadMore(false);
+        }
+      } else {
+        setCanLoadMore(true);
+      }
+
+      
     } catch (error) {
       console.error('Error loading messages:', error);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, messages.length, lastVisible]);
+  }, [isLoadingMore, messages.length, lastVisible, conversation]);
+  
+  // Load archived messages from Firebase Storage
+  const loadArchivedMessages = useCallback(async () => {
+    if (!conversation || isLoadingArchive) {
+      console.log('Cannot load archives: conversation missing or already loading');
+      return;
+    }
+    
+    if (!conversation.archives || conversation.archives.length === 0) {
+      console.log('No archives available to load');
+      setCanLoadMore(false);
+      return;
+    }
+    
+    if (currentArchiveIndex >= (conversation.archives?.length || 0)) {
+      console.log('Reached end of archives, no more to load');
+      setCanLoadMore(false);
+      return;
+    }
+    
+    try {
+      setIsLoadingArchive(true);
+      
+      // Insert the separator if this is the first archive we're loading
+      if (currentArchiveIndex === 0) {
+        console.log('First archive, adding separator');
+        // Create a special "separator" message
+        const separatorMessage = {
+          id: `archive_separator_${Date.now()}`,
+          text: '------------ Archived Messages ------------',
+          senderId: 'system',
+          senderName: 'System',
+          timestamp: Timestamp.now(),
+          read: true,
+          isSeparator: true
+        };
+        
+        // Add the separator message to the end of the current messages
+        setMessages(prevMessages => [...prevMessages, separatorMessage]);
+      }
+      
+      // Get the archive information
+      const archives = conversation.archives || [];
+      console.log(`Found ${archives.length} archives, loading index ${currentArchiveIndex}`);
+      
+      // Make a copy to avoid mutations
+      const archivesCopy = [...archives];
+      
+      // Log archive details to help with debugging
+      archivesCopy.forEach((archive, index) => {
+        console.log(`Archive ${index}: path=${archive.path}, count=${archive.count}`);
+        if (archive.oldestTimestamp) {
+          const timestamp = archive.oldestTimestamp;
+          console.log(`  oldestTimestamp: ${typeof timestamp === 'object' ? 
+            (timestamp.seconds ? `seconds: ${timestamp.seconds}` : JSON.stringify(timestamp)) : 
+            timestamp}`);
+        }
+      });
+      
+      // IMPORTANT FIX: Sort archives by timestamp from newest to oldest
+      // This matches how we display messages (newest first)
+      const sortedArchives = archivesCopy.sort((a, b) => {
+        try {
+          // Safely get the timestamp values
+          const getTimestampValue = (archive: any) => {
+            if (!archive) return 0;
+            const timestamp = archive.oldestTimestamp;
+            
+            if (!timestamp) return 0;
+            
+            // Handle different timestamp formats
+            if (typeof timestamp.toMillis === 'function') {
+              return timestamp.toMillis();
+            } else if (timestamp.seconds !== undefined) {
+              return timestamp.seconds * 1000;
+            } else if (timestamp._seconds !== undefined) {
+              return timestamp._seconds * 1000;
+            } else {
+              return 0;
+            }
+          };
+          
+          const timeA = getTimestampValue(a);
+          const timeB = getTimestampValue(b);
+          
+          console.log(`Comparing archives: A(${timeA}) vs B(${timeB})`);
+          return timeB - timeA; // Newest first, to match our UI display
+        } catch (error) {
+          console.error('Error sorting archives:', error);
+          return 0;
+        }
+      });
+      
+      console.log(`Loading archive ${currentArchiveIndex + 1} of ${sortedArchives.length} archives`);
+      
+      // Get the current archive to load
+      const archive = sortedArchives[currentArchiveIndex];
+      if (!archive || !archive.path) {
+        console.error('Invalid archive information, missing path');
+        setCurrentArchiveIndex(prev => prev + 1); // Skip this one
+        setIsLoadingArchive(false);
+        return;
+      }
+      
+      const archivePath = archive.path;
+      console.log(`Loading archived messages from path: ${archivePath}`);
+
+      // Maximum retry attempts for loading an archive
+      const MAX_RETRIES = 2;
+      let retryCount = 0;
+      let archivedMessages = [];
+      let error = null;
+      
+      // Retry loop for loading archives
+      while (retryCount <= MAX_RETRIES) {
+        try {
+          // Use our utility function to load and parse archived messages
+          archivedMessages = await fetchArchivedMessages(conversation.id, archivePath);
+          console.log(`Successfully loaded ${archivedMessages.length} archived messages on attempt ${retryCount + 1}`);
+          error = null; // Clear error if successful
+          break; // Exit retry loop on success
+        } catch (e) {
+          error = e;
+          console.error(`Attempt ${retryCount + 1} failed to load archive:`, e);
+          retryCount++;
+          
+          // Small delay between retries
+          if (retryCount <= MAX_RETRIES) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            console.log(`Retrying archive load, attempt ${retryCount + 1}...`);
+          }
+        }
+      }
+      
+      // If all retries failed or the archive was empty
+      if (error || archivedMessages.length === 0) {
+        console.log(error ? 
+          `Failed to load archive after ${MAX_RETRIES + 1} attempts` : 
+          'Archive was empty or failed to load properly');
+          
+        // Move to next archive
+        setCurrentArchiveIndex(prev => prev + 1);
+        setCanLoadMore(currentArchiveIndex + 1 < sortedArchives.length);
+        setIsLoadingArchive(false);
+        return;
+      }
+      
+      // Log message details to help with debugging
+      console.log(`First message timestamp type: ${typeof archivedMessages[0]?.timestamp}`);
+      if (archivedMessages[0]?.timestamp) {
+        const ts = archivedMessages[0].timestamp;
+        console.log(`Timestamp details: ${
+          typeof ts.toDate === 'function' ? 'has toDate()' : 
+          (ts.seconds ? `seconds: ${ts.seconds}` : JSON.stringify(ts))
+        }`);
+      }
+      
+      // Sort archived messages by timestamp (newest first for inverted FlatList)
+      const sortedArchivedMessages = [...archivedMessages].sort((a, b) => {
+        try {
+          // Handle different timestamp formats safely
+          const getTimeValue = (msg: any) => {
+            if (!msg || !msg.timestamp) return 0;
+            
+            // Case 1: Standard Firestore timestamp with toMillis() method
+            if (typeof msg.timestamp.toMillis === 'function') {
+              return msg.timestamp.toMillis();
+            }
+            
+            // Case 2: Object with seconds/nanoseconds
+            if (msg.timestamp.seconds !== undefined) {
+              return msg.timestamp.seconds * 1000;
+            }
+            
+            // Case 3: Object with _seconds/_nanoseconds
+            if (msg.timestamp._seconds !== undefined) {
+              return msg.timestamp._seconds * 1000;
+            }
+            
+            // Case 4: Date object
+            if (msg.timestamp instanceof Date) {
+              return msg.timestamp.getTime();
+            }
+            
+            // Case 5: String representation
+            if (typeof msg.timestamp === 'string') {
+              return new Date(msg.timestamp).getTime();
+            }
+            
+            // Case 6: Number (already milliseconds)
+            if (typeof msg.timestamp === 'number') {
+              return msg.timestamp;
+            }
+            
+            // Default case
+            return 0;
+          };
+          
+          const timeA = getTimeValue(a);
+          const timeB = getTimeValue(b);
+          
+          return timeB - timeA; // Newest first for inverted list
+        } catch (error) {
+          console.error('Error sorting archived messages:', error);
+          console.log('Problem message A:', JSON.stringify(a?.timestamp));
+          console.log('Problem message B:', JSON.stringify(b?.timestamp));
+          return 0; // Keep original order if error
+        }
+      });
+      
+      console.log(`Adding ${sortedArchivedMessages.length} archived messages to display`);
+      
+      // Add to existing messages and ensure they're at the END of the list
+      // since we're using an inverted FlatList (bottom = newest)
+      setMessages(prevMessages => {
+        const newMessages = [...prevMessages, ...sortedArchivedMessages];
+        console.log(`Total messages after adding archives: ${newMessages.length}`);
+        return newMessages;
+      });
+      
+      // Move to the next archive
+      setCurrentArchiveIndex(prev => prev + 1);
+      
+      // Check if we have more archives
+      const hasMoreArchives = currentArchiveIndex + 1 < sortedArchives.length;
+      console.log(`Has more archives: ${hasMoreArchives}`);
+      setCanLoadMore(hasMoreArchives);
+      
+    } catch (error) {
+      console.error('Error loading archived messages:', error);
+      // Try to move to the next archive even if this one failed
+      setCurrentArchiveIndex(prev => prev + 1);
+      setCanLoadMore(currentArchiveIndex + 1 < (conversation?.archives?.length || 0));
+    } finally {
+      setIsLoadingArchive(false);
+    }
+  }, [conversation, isLoadingArchive, currentArchiveIndex, fetchArchivedMessages]);
   
   // Add a single message
   const addMessage = useCallback((newMessage: Message) => {
-    setMessages(prevMessages => [...prevMessages, newMessage]);
+    // Prepend new message for inverted list
+    setMessages(prevMessages => [newMessage, ...prevMessages]);
   }, []);
   
   // Load more messages
   const loadMoreMessages = useCallback(() => {
-    if (!conversation || !canLoadMore || isLoadingMore) return;
-    loadMessages(conversation.id, true);
-  }, [conversation, canLoadMore, isLoadingMore, loadMessages]);
+    if (!conversation) {
+      console.log('Cannot load more messages: no conversation');
+      return;
+    }
+    
+    if (isLoadingMore || isLoadingArchive) {
+      console.log('Already loading messages or archives, skipping load more request');
+      return;
+    }
+    
+    if (!canLoadMore) {
+      console.log('Cannot load more: reached end of all messages and archives');
+      return;
+    }
+    
+    console.log('Attempting to load more messages...');
+    console.log(`lastVisible: ${lastVisible ? 'present' : 'null'}, archives: ${conversation?.archives?.length || 0}`);
+    
+    // Check if we have more Firestore messages
+    if (lastVisible) {
+      console.log('Loading more messages from Firestore');
+      loadMessages(conversation.id, true);
+    } else if (conversation?.archives && conversation.archives.length > 0 && 
+              currentArchiveIndex < conversation.archives.length) {
+      // If no more Firestore messages, try loading from archives
+      console.log('No more Firestore messages, loading from archives');
+      loadArchivedMessages();
+    } else {
+      // Truly no more messages
+      console.log('No more messages or archives to load');
+      setCanLoadMore(false);
+    }
+  }, [
+    conversation, 
+    canLoadMore, 
+    isLoadingMore, 
+    isLoadingArchive, 
+    lastVisible,
+    currentArchiveIndex, 
+    loadMessages, 
+    loadArchivedMessages
+  ]);
   
   return {
     messages,
     isLoadingMore,
+    isLoadingArchive,
     canLoadMore,
     loadMessages,
     addMessage,
-    loadMoreMessages
+    loadMoreMessages,
+    currentArchiveIndex
   };
 }
 
@@ -186,6 +498,7 @@ export default function ChatScreen() {
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [isUnmatching, setIsUnmatching] = useState(false);
   const [isBlocking, setIsBlocking] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
   
   // Cache reference
   const cachedConversationId = useRef<string | null>(null);
@@ -194,26 +507,31 @@ export default function ChatScreen() {
   const { 
     messages, 
     isLoadingMore,
+    isLoadingArchive,
     canLoadMore,
     loadMessages,
     addMessage,
-    loadMoreMessages 
+    loadMoreMessages,
+    currentArchiveIndex
   } = useMessages(conversation, user);
   
   // Reference to the FlatList for scrolling
   const flatListRef = useRef<FlatList>(null);
 
-  // Function to scroll to bottom
-  const scrollToBottom = useCallback(() => {
-    if (flatListRef.current && messages.length > 0) {
-      flatListRef.current.scrollToEnd({ animated: true });
-    }
-  }, [messages.length]);
-  
-  // Auto-scroll when new messages are added
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages.length, scrollToBottom]);
+  // Add this debounced load more function to prevent multiple calls
+  const [isEndReached, setIsEndReached] = useState(false);
+
+  const handleEndReached = useCallback(() => {
+    if (isEndReached) return; // Prevent multiple calls in quick succession
+    
+    setIsEndReached(true);
+    loadMoreMessages();
+    
+    // Reset after a short delay
+    setTimeout(() => {
+      setIsEndReached(false);
+    }, 1000);
+  }, [loadMoreMessages, isEndReached]);
   
   // Clean up listeners on unmount
   useEffect(() => {
@@ -341,6 +659,9 @@ export default function ChatScreen() {
       const userData = userDoc.data().profile || {};
       const otherUserData = otherUserDoc.data().profile || {};
       
+      // Add detailed logging
+    
+      
       // Create batch for more efficient writes
       const batch = writeBatch(db);
       
@@ -370,6 +691,12 @@ export default function ChatScreen() {
         messageCount: 0,
         currentBatchId: null
       };
+      
+      // Log the final conversation data being saved
+      console.log('Creating conversation with data:', {
+        participants: conversationData.participants,
+        participantNames: conversationData.participantNames
+      });
       
       // Set the conversation document
       batch.set(newConversationRef, conversationData);
@@ -409,12 +736,16 @@ export default function ChatScreen() {
             
             // Set other user's information
             const otherParticipantId = conversationData.participants.find(p => p !== user.uid) || '';
+            
             setOtherUser({
               id: otherParticipantId,
               name: conversationData.participantNames[otherParticipantId] || 'User',
               photo: conversationData.participantPhotos[otherParticipantId] || '',
               matchTimestamp: conversationData.lastMessage?.timestamp
             });
+            
+            // Log the other user object for debugging
+            
             
             // Mark messages as read if needed
             const unreadCount = conversationData.unreadCount?.[user.uid] || 0;
@@ -584,34 +915,74 @@ export default function ChatScreen() {
   };
   
   // Format message timestamp
-  const formatMessageTime = (timestamp: Timestamp) => {
-    const date = timestamp.toDate();
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const formatMessageTime = (timestamp: any) => {
+    let date: Date;
     
-    if (diffDays === 0) {
-      // Today, show time
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else if (diffDays === 1) {
-      // Yesterday
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      // This week, show day name
-      return date.toLocaleDateString([], { weekday: 'short' });
-    } else {
-      // Older, show date
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    try {
+      // Handle different timestamp formats
+      if (typeof timestamp.toDate === 'function') {
+        // Firestore Timestamp
+        date = timestamp.toDate();
+      } else if (timestamp.seconds !== undefined) {
+        // Object with seconds
+        date = new Date(timestamp.seconds * 1000);
+      } else if (timestamp._seconds !== undefined) {
+        // Object with _seconds
+        date = new Date(timestamp._seconds * 1000);
+      } else if (timestamp instanceof Date) {
+        // Already a Date object
+        date = timestamp;
+      } else if (typeof timestamp === 'string') {
+        // String timestamp
+        date = new Date(timestamp);
+      } else if (typeof timestamp === 'number') {
+        // Numeric timestamp
+        date = new Date(timestamp);
+      } else {
+        // Default to current time if format is not recognized
+        console.warn('Unrecognized timestamp format, using current time');
+        date = new Date();
+      }
+      
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 0) {
+        // Today, show time
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else if (diffDays === 1) {
+        // Yesterday
+        return 'Yesterday';
+      } else if (diffDays < 7) {
+        // This week, show day name
+        return date.toLocaleDateString([], { weekday: 'short' });
+      } else {
+        // Older, show date
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      }
+    } catch (error) {
+      console.error('Error formatting message time:', error);
+      return '';
     }
   };
   
   // Render a message item
-  const renderMessage = ({ item }: { item: Message }) => {
+  const renderMessage = ({ item, isArchived }: { item: Message, isArchived?: boolean }) => {
     const isOwnMessage = item.senderId === user?.uid;
     
     // Ensure we're only rendering string text
     const messageText = typeof item.text === 'string' ? item.text : 'Message unavailable';
-    const timeString = item.timestamp ? formatMessageTime(item.timestamp) : '';
+    
+    // Safely format the timestamp
+    let timeString = '';
+    try {
+      if (item.timestamp) {
+        timeString = formatMessageTime(item.timestamp);
+      }
+    } catch (error) {
+      console.error('Error formatting message time in renderMessage:', error);
+    }
     
     return (
       <View style={[
@@ -620,7 +991,8 @@ export default function ChatScreen() {
       ]}>
         <View style={[
           styles.messageBubble,
-          isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble
+          isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble,
+          isArchived && styles.archivedMessageBubble
         ]}>
           <Text style={[
             styles.messageText,
@@ -628,6 +1000,9 @@ export default function ChatScreen() {
           ]}>
             {messageText}
           </Text>
+          {isArchived && (
+            <Text style={styles.archivedIndicator}>archived</Text>
+          )}
         </View>
         <Text style={styles.messageTime}>
           {timeString}
@@ -714,6 +1089,48 @@ export default function ChatScreen() {
     );
   };
   
+  // Handle manual archive
+  const handleArchiveMessages = async () => {
+    if (!conversation) return;
+    
+    try {
+      setIsArchiving(true);
+      const functions = getFunctions();
+      
+      const result = await triggerManualArchive(conversation.id, functions);
+      
+      // Type assertion for the result
+      const archiveResult = result as {
+        success: boolean;
+        archivedCount?: number;
+        message?: string;
+      };
+      
+      if (archiveResult.success) {
+        Alert.alert(
+          'Messages Archived',
+          `Successfully archived ${archiveResult.archivedCount} messages`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert(
+          'Archiving Failed',
+          archiveResult.message || 'Not enough messages to archive',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('Error archiving messages:', error);
+      Alert.alert(
+        'Error',
+        'Failed to archive messages. Please try again later.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+  
   // Render the options menu
   const renderOptionsMenu = () => {
     return (
@@ -729,6 +1146,25 @@ export default function ChatScreen() {
           onPress={() => setShowOptionsMenu(false)}
         >
           <View style={styles.optionsContainer}>
+            {/* Archive Messages Option */}
+            <TouchableOpacity 
+              style={styles.optionItem}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                handleArchiveMessages();
+              }}
+              disabled={isArchiving}
+            >
+              {isArchiving ? (
+                <ActivityIndicator size="small" color={COLORS.secondary} style={styles.optionIcon} />
+              ) : (
+                <Ionicons name="archive" size={24} color={COLORS.secondary} style={styles.optionIcon} />
+              )}
+              <Text style={styles.optionText}>Archive Old Messages</Text>
+            </TouchableOpacity>
+            
+            <View style={styles.optionDivider} />
+            
             <TouchableOpacity 
               style={styles.optionItem}
               onPress={() => {
@@ -809,6 +1245,89 @@ export default function ChatScreen() {
     };
   }, [unsubscribeConversation, unsubscribeMessages]);
   
+  // Add this function to render the footer (loading indicator) for FlatList
+  const renderFooter = useCallback(() => {
+    // Show loading indicator when loading more messages
+    if (isLoadingMore || isLoadingArchive) {
+      return (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="small" color={COLORS.secondary} />
+          <Text style={styles.loaderText}>
+            {isLoadingArchive ? 'Loading archived messages...' : 'Loading more messages...'}
+          </Text>
+        </View>
+      );
+    }
+    
+    // Show archive count when archives are available but not currently loading
+    if (!canLoadMore && messages.length > 0 && 
+        conversation?.archives && 
+        currentArchiveIndex < conversation.archives.length) {
+      
+      // Calculate remaining archive messages
+      const remainingArchives = conversation.archives.slice(currentArchiveIndex);
+      const totalArchiveMessages = remainingArchives.reduce((sum, archive) => 
+        sum + (archive.count || 0), 0);
+      
+      if (totalArchiveMessages > 0) {
+        return (
+          <View style={styles.endOfMessagesContainer}>
+            <Text style={styles.endOfMessagesText}>
+              {totalArchiveMessages} older messages available
+            </Text>
+            <TouchableOpacity 
+              style={styles.loadArchiveButton}
+              onPress={loadMoreMessages}
+              disabled={isLoadingArchive}
+            >
+              <Text style={styles.loadArchiveButtonText}>Load More</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
+    }
+    
+    // Show "end of messages" when we can't load any more
+    if (!canLoadMore && messages.length > 0) {
+      return (
+        <View style={styles.endOfMessagesContainer}>
+          <Text style={styles.endOfMessagesText}>
+            End of conversation history
+          </Text>
+        </View>
+      );
+    }
+    
+    return null;
+  }, [isLoadingMore, isLoadingArchive, canLoadMore, messages.length, conversation, currentArchiveIndex, loadMoreMessages]);
+  
+  // Add this component to show a separator between live and archived messages
+  const ArchivedMessagesSeparator = () => (
+    <View style={styles.archiveSeparator}>
+      <View style={styles.separatorLine} />
+      <Text style={styles.separatorText}>Archived Messages</Text>
+      <View style={styles.separatorLine} />
+    </View>
+  );
+  
+  // Update the renderItem function to handle archived messages
+  const renderItem = useCallback(({ item }: { item: any }) => {
+    // Check if this is a separator item
+    if (item.isSeparator) {
+      return <ArchivedMessagesSeparator />;
+    }
+    
+    // Handle regular messages
+    const isArchived = item.id?.startsWith('archived_');
+    return renderMessage({ item, isArchived });
+  }, [renderMessage]);
+  
+  // Modify the keyExtractor function to properly handle all message IDs
+  const keyExtractor = useCallback((item: any) => {
+    // Ensure we always have a valid key
+    return item.id || `msg_${item.senderId}_${item.timestamp?.toMillis?.() || Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }, []);
+  
   // Loading state
   if (isLoading) {
     return (
@@ -837,11 +1356,11 @@ export default function ChatScreen() {
           style={styles.profileButton}
           onPress={() => {
             if (otherUser.id) {
-              // First try to find the user in matches array
+          
+              
+              // First try to find the user in chattingWith array
               let matchData = chattingWith.find(chat => chat.userId === otherUser.id);
-              
-              // If not found in matches, check in chattingWith array
-              
+              console.log('Found match data in chattingWith:', matchData);
               
               if (matchData) {
                 // Ensure consistent timestamp handling
@@ -861,6 +1380,13 @@ export default function ChatScreen() {
                   }
                 }
                 
+                console.log('Navigating to profile with match data:', {
+                  userId: otherUser.id,
+                  matchLevel: matchData.matchLevel,
+                  commonShowsCount: matchData.commonShowIds?.length || 0,
+                  favoriteShowsCount: matchData.favoriteShowIds?.length || 0
+                });
+                
                 router.push({
                   pathname: '/(common)/userProfile',
                   params: { 
@@ -872,6 +1398,8 @@ export default function ChatScreen() {
                   }
                 });
               } else {
+      
+                // If we can't find match data, just navigate with user ID
                 router.push({
                   pathname: '/(common)/userProfile',
                   params: { userId: otherUser.id }
@@ -915,31 +1443,16 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {canLoadMore && (
-          <TouchableOpacity 
-            style={styles.loadMoreButton} 
-            onPress={loadMoreMessages}
-            disabled={isLoadingMore}
-          >
-            {isLoadingMore ? (
-              <ActivityIndicator size="small" color={COLORS.secondary} />
-            ) : (
-              <Text style={styles.loadMoreText}>Load earlier messages</Text>
-            )}
-          </TouchableOpacity>
-        )}
-        
         <FlatList
           ref={flatListRef}
           data={messages}
-          keyExtractor={(item, index) => item.id || `${item.timestamp.toString()}-${index}`}
-          renderItem={renderMessage}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
           contentContainerStyle={styles.messagesContainer}
-          onContentSizeChange={scrollToBottom}
-          onLayout={scrollToBottom}
-          inverted={false}
-          onEndReached={loadMoreMessages}
-          onEndReachedThreshold={0.1}
+          inverted={true}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.2}
+          ListFooterComponent={renderFooter}
         />
         
         {/* Message input */}
@@ -1109,17 +1622,6 @@ const styles = StyleSheet.create({
   disabledSendButton: {
     opacity: 0.5,
   },
-  loadMoreButton: {
-    alignItems: 'center',
-    padding: 10,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 20,
-    margin: 10,
-  },
-  loadMoreText: {
-    color: COLORS.secondary,
-    fontWeight: '600',
-  },
   optionsButton: {
     width: 40,
     height: 40,
@@ -1158,5 +1660,68 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#e5e5e5',
     marginVertical: 8,
+  },
+  loaderContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  loaderText: {
+    marginLeft: 10,
+    fontSize: 16,
+    color: COLORS.secondary,
+  },
+  archiveSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginVertical: 8,
+  },
+  separatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: COLORS.tertiary,
+  },
+  separatorText: {
+    paddingHorizontal: 8,
+    color: COLORS.tertiary,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  archivedMessageBubble: {
+    borderStyle: 'dashed',
+    borderWidth: 1,
+    borderColor: COLORS.tertiary
+  },
+  archivedIndicator: {
+    fontSize: 10,
+    fontStyle: 'italic',
+    color: COLORS.tertiary,
+    alignSelf: 'flex-end',
+    marginTop: 4
+  },
+  endOfMessagesContainer: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  endOfMessagesText: {
+    fontSize: 14,
+    color: COLORS.tertiary,
+    fontStyle: 'italic',
+    marginBottom: 8,
+  },
+  loadArchiveButton: {
+    backgroundColor: COLORS.secondary,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    marginTop: 8,
+  },
+  loadArchiveButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 }); 
