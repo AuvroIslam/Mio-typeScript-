@@ -2,17 +2,26 @@
 // We use direct HTTP API instead of the Node.js SDK which isn't compatible with React Native
 import { Platform } from 'react-native';
 
-// Cloudinary configuration
-const CLOUD_NAME = 'dfmhc10bq';
+// Read config from environment variables
+const CLOUD_NAME = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME;
+const UPLOAD_PRESET = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
 
 // The upload URL with preset
-const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
-const UPLOAD_PRESET = 'mioImage';
+// Check if CLOUD_NAME is defined before constructing URL
+const CLOUDINARY_UPLOAD_URL = CLOUD_NAME
+  ? `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`
+  : undefined; // Set to undefined if CLOUD_NAME is missing
 
 // Function to upload an image to Cloudinary using unsigned upload with preset
 export const uploadImage = async (localUri: string): Promise<string> => {
-  try {
+  // Check for missing config at the start of the function
+  if (!CLOUD_NAME || !UPLOAD_PRESET || !CLOUDINARY_UPLOAD_URL) {
+    const errorMessage = "Cloudinary configuration is missing in environment variables (CLOUD_NAME, UPLOAD_PRESET).";
+    console.error(errorMessage);
+    throw new Error(errorMessage);
+  }
 
+  try {
     // Create form data for upload
     const formData = new FormData();
     

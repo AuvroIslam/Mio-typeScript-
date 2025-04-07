@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ImageBackground, Image } from 'react-native'
+import { View, StyleSheet, ImageBackground } from 'react-native'
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -6,8 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import backgroundImage from '../assets/images/background_splash.jpg'
 import { CustomButton, Loader } from "../components";
 import { useAuth } from '../context/AuthContext';
-import { COLORS } from '../constants/Colors';
-import Toast from 'react-native-toast-message';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function App() {
@@ -27,7 +26,7 @@ export default function App() {
           await AsyncStorage.removeItem('auth_error');
         }
       } catch (e) {
-        console.log('Could not check AsyncStorage:', e);
+        console.error('Could not check AsyncStorage:', e);
       }
     };
     

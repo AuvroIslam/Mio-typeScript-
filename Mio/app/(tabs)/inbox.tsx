@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -7,18 +7,17 @@ import {
   TouchableOpacity, 
   Image, 
   ActivityIndicator,
-  TextInput,
   Modal,
+  
   Alert
 } from 'react-native';
 import {  useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
-import { useMatch } from '../../context/MatchContext';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { logoutEventEmitter, LOGOUT_EVENT } from '../../context/AuthContext';
+import { useMatch, MatchData as ContextMatchData } from '../../context/MatchContext';
 
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   collection, 
   query, 
@@ -28,22 +27,11 @@ import {
   doc,
   getDoc,
   updateDoc,
- 
   Timestamp,
   setDoc,
-  getDocs,
-  
+  getDocs
 } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
-
-interface Message {
-  id?: string;
-  text: string;
-  senderId: string;
-  senderName: string;
-  timestamp: Timestamp;
-  read: boolean;
-}
 
 interface Conversation {
   id: string;
@@ -55,62 +43,40 @@ interface Conversation {
     timestamp: Timestamp;
   };
   unreadCount: {[uid: string]: number};
+  createdAt?: Timestamp;
 }
 
-interface MatchData {
+// NEW: Interface for blocked user data for display
+interface BlockedUserInfo {
   userId: string;
   displayName: string;
   profilePic: string;
-  matchTimestamp?: any;
-  // Add other properties as needed
 }
 
 export default function InboxScreen() {
   const { user } = useAuth();
+  const { matches: contextMatches, updateChattingWithStatus, blockedUsers, unblockUser } = useMatch();
   const router = useRouter();
-
-
   
-  const { matches, chattingWith, blockedUsers, unblockUser, moveToChattingWith, isNewMatch } = useMatch();
+ 
+  
+  // Component state
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [newMessage, setNewMessage] = useState('');
-
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-
-  const [showBlockedUsers, setShowBlockedUsers] = useState(false);
-  const [isUnblocking, setIsUnblocking] = useState(false);
-  const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
-  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [indexWarning, setIndexWarning] = useState(false);
+  const [isBlockListVisible, setIsBlockListVisible] = useState(false); // <-- State for block list modal
+  const [blockedUsersInfo, setBlockedUsersInfo] = useState<BlockedUserInfo[]>([]); // <-- State for detailed block list
+  const [isLoadingBlockList, setIsLoadingBlockList] = useState(false); // <-- Loading state for block list details
+  const [isUnblocking, setIsUnblocking] = useState<string | null>(null); // <-- Track which user is being unblocked
   
-  // Create a deduplicated list of matches and chattingWith
-  // Use a Map to ensure we don't have duplicate user IDs
-  
-  
-  // Add matches first
- 
-  
-  // Convert back to array
- 
-  
-  // Instead of the local variable in loadConversations, add a state variable
-  const [unsubscribeListener, setUnsubscribeListener] = useState<(() => void) | null>(null);
-  
-  // Load user's matches and conversations
+  // Filter available matches from the context
+  const availableMatches = useMemo(() => {
+    return contextMatches.filter((match: ContextMatchData) => !match.chattingWith);
+  }, [contextMatches]);
+
+  // Load user's conversations
   useEffect(() => {
-    if (user) {
-      loadConversations();
-    }
-  }, [user]);
-  
-  // Load conversations function
-  const loadConversations = useCallback(() => {
-    if (!user) {
-      setIsLoading(false);
-      return;
-    }
+    if (!user) return;
     
     setIsLoading(true);
     
@@ -122,15 +88,10 @@ export default function InboxScreen() {
       orderBy('lastMessageTimestamp', 'desc')
     );
     
-    // Instead of using let unsubscribe, use the state setter
+    let unsubscribe: () => void = () => {};
+    
     try {
-      // Clear any existing listener first
-      if (unsubscribeListener) {
-        unsubscribeListener();
-        setUnsubscribeListener(null);
-      }
-      
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      unsubscribe = onSnapshot(q, (snapshot) => {
         const conversationList: Conversation[] = [];
         
         snapshot.forEach((docSnapshot) => {
@@ -195,120 +156,38 @@ export default function InboxScreen() {
               participantNames: participantNames,
               participantPhotos: participantPhotos,
               lastMessage: lastMessageObj,
-              unreadCount: unreadCount
+              unreadCount: unreadCount,
+              createdAt: data.createdAt
             });
           }
         });
         
+    
         setConversations(conversationList);
         setIndexWarning(false);
         setIsLoading(false);
       }, (error) => {
         // Handle permission error gracefully
         console.error("Error loading conversations:", error);
-        
-        // Don't show index errors if there's a permission error
-        if (error.code === 'permission-denied') {
-          console.log('Permission denied error - user may be logged out');
-          setConversations([]);
-        }
-        // Only set index warning for actual index errors
-        else if (error.message?.includes('index')) {
+        // Check if this is an index error
+        if (error.message?.includes('index')) {
           setIndexWarning(true);
         }
-        
         setIsLoading(false);
       });
-      
-      // Set the unsubscribe function to state
-      setUnsubscribeListener(() => unsubscribe);
     } catch (error) {
       console.error("Error setting up conversations listener:", error);
       setIsLoading(false);
     }
-  }, [user, unsubscribeListener]);
-  
-  // Add the migration function to update old conversation formats
-  const migrateConversationFormat = async (conversationId: string, oldData: any) => {
-    if (!conversationId || typeof oldData.lastMessage !== 'string') return;
     
-    try {
-      await updateDoc(doc(db, 'conversations', conversationId), {
-        lastMessage: {
-          text: oldData.lastMessage || 'Start a conversation!',
-          timestamp: oldData.lastMessageTimestamp || Timestamp.now()
-        }
-      });
-    
-    } catch (error) {
-      console.error(`Error migrating conversation ${conversationId}:`, error);
-    }
-  };
-  
-  // Load messages for selected conversation
-  useEffect(() => {
-    if (!selectedConversation || !user) return;
-    
-    const messagesRef = collection(db, `conversations/${selectedConversation.id}/messages`);
-    const q = query(messagesRef, orderBy('timestamp', 'asc'));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const messageList: Message[] = [];
-      
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        messageList.push({
-          id: doc.id,
-          text: data.text,
-          senderId: data.senderId,
-          senderName: data.senderName,
-          timestamp: data.timestamp,
-          read: data.read
-        });
-      });
-      
-      setMessages(messageList);
-      
-      // Mark messages as read
-      markMessagesAsRead();
-    });
-    
+    // Cleanup function
     return () => unsubscribe();
-  }, [selectedConversation, user]);
+  }, [user]);
   
-  const markMessagesAsRead = async () => {
-    if (!selectedConversation || !user) return;
-    
-    try {
-      // Update unread count to 0 for current user
-      await updateDoc(doc(db, 'conversations', selectedConversation.id), {
-        [`unreadCount.${user.uid}`]: 0
-      });
-      
-      // Mark all messages as read
-      const messagesRef = collection(db, `conversations/${selectedConversation.id}/messages`);
-      const q = query(
-        messagesRef, 
-        where('senderId', '!=', user.uid),
-        where('read', '==', false)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      
-      querySnapshot.forEach(async (docSnapshot) => {
-        await updateDoc(docSnapshot.ref, { read: true });
-      });
-    } catch (error) {
-      console.error('Error marking messages as read:', error);
-    }
-  };
-  
-  const createConversation = async (match: MatchData) => {
+  const createConversation = async (match: ContextMatchData) => {
     if (!user) return;
     
     try {
-      setIsLoading(true);
-      
       // Check if conversation already exists
       const conversationsRef = collection(db, 'conversations');
       const q = query(
@@ -317,40 +196,52 @@ export default function InboxScreen() {
       );
       
       const querySnapshot = await getDocs(q);
-      let existingConversationId: string | null = null;
+      let existingConversationId = null;
       
       querySnapshot.forEach((docSnapshot) => {
         const data = docSnapshot.data();
-        if (data.participants && data.participants.includes(match.userId)) {
+        if (data.participants.includes(match.userId)) {
           existingConversationId = docSnapshot.id;
         }
       });
       
-      if (existingConversationId) {
-        setSelectedConversation(conversations.find(c => c.id === existingConversationId) || null);
-        // Move match to chattingWith array even for existing conversations
-        moveToChattingWith(match.userId);
-        setIsLoading(false);
-        return;
-      }
+      // Navigate to existing or new chat screen
+      const conversationIdToNavigate = existingConversationId || await createNewConversationDocument(match);
       
-      // Get current user's profile data (we need this for the profile picture)
+      if (conversationIdToNavigate) {
+        router.push({
+          pathname: '/(conversations)/chat',
+          params: { 
+            conversationId: conversationIdToNavigate,
+            fromInbox: 'true'
+          }
+        });
+      }
+
+    } catch (error) {
+      console.error('Error finding or creating conversation:', error);
+    }
+  };
+  
+  const createNewConversationDocument = async (match: ContextMatchData): Promise<string | null> => {
+    if (!user) return null;
+
+    try {
+      // Get current user's profile data
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       const userProfile = userDoc.data()?.profile || {};
-
-     
       
-      // Create new conversation
-      const conversationRef = doc(collection(db, 'conversations'));
-      const conversationData = {
+        // Create new conversation document
+      const newConversationRef = doc(collection(db, 'conversations'));
+      await setDoc(newConversationRef, {
         participants: [user.uid, match.userId],
         participantNames: {
-          [user.uid]: userProfile.displayName || 'Unknown User',
-          [match.userId]: match.displayName || 'User'
+          [user.uid]: userProfile.displayName || 'You',
+          [match.userId]: match.displayName
         },
         participantPhotos: {
           [user.uid]: userProfile.profilePic || '',
-          [match.userId]: match.profilePic || ''
+          [match.userId]: match.profilePic
         },
         lastMessage: {
           text: 'Start a conversation!',
@@ -362,82 +253,20 @@ export default function InboxScreen() {
           [user.uid]: 0,
           [match.userId]: 0
         }
-      };
-
-    
-
-      await setDoc(conversationRef, conversationData);
+          // Add messageCount, currentBatchId etc. if needed by chat.tsx creation logic
+      });
       
-      // Move match to chattingWith array when creating a new conversation
-      moveToChattingWith(match.userId);
+        // Update chattingWith status for both users
+      await updateChattingWithStatus(match.userId);
       
-      setSelectedConversation(conversations.find(c => c.id === conversationRef.id) || null);
-      setIsLoading(false);
+        return newConversationRef.id;
     } catch (error) {
-      console.error('Error creating conversation:', error);
-      setIsLoading(false);
+        console.error('Error creating new conversation document:', error);
+        return null;
     }
   };
   
-  const sendMessage = async () => {
-    if (!selectedConversation || !user || !newMessage.trim()) return;
-    
-    try {
-      const conversationRef = doc(db, 'conversations', selectedConversation.id);
-      const conversationDoc = await getDoc(conversationRef);
-      
-      if (!conversationDoc.exists()) return;
-      
-      const conversationData = conversationDoc.data();
-      const otherParticipant = conversationData.participants.find((p: string) => p !== user.uid);
-      
-      // Add message to conversation
-      const messagesRef = collection(db, `conversations/${selectedConversation.id}/messages`);
-      const messageDoc = doc(messagesRef);
-      await setDoc(messageDoc, {
-        senderId: user.uid,
-        senderName: conversationData.participantNames[user.uid],
-        text: newMessage.trim(),
-        timestamp: Timestamp.now(),
-        read: false
-      });
-      
-      // Update conversation with last message
-      await updateDoc(conversationRef, {
-        lastMessage: {
-          text: newMessage.trim(),
-          timestamp: Timestamp.now()
-        },
-        lastMessageTimestamp: Timestamp.now(),
-        [`unreadCount.${otherParticipant}`]: (conversationData.unreadCount?.[otherParticipant] || 0) + 1
-      });
-      
-      setNewMessage('');
-    } catch (error) {
-      console.error('Error sending message:', error);
-    }
-  };
-  
-  const formatMessageTime = (timestamp: Timestamp) => {
-    const date = timestamp.toDate();
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) {
-      // Today, show time
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else if (diffDays === 1) {
-      // Yesterday
-      return 'Yesterday';
-    } else if (diffDays < 7) {
-      // This week, show day name
-      return date.toLocaleDateString([], { weekday: 'short' });
-    } else {
-      // Older, show date
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    }
-  };
+
   
   // Function to truncate long messages
   const truncateText = (text: string, maxLength: number = 30): string => {
@@ -446,24 +275,41 @@ export default function InboxScreen() {
     return text.substring(0, maxLength) + '...';
   };
   
+  // Check if match is less than 24 hours old
+  const isNewMatch = (matchTimestamp: any): boolean => {
+    if (!matchTimestamp) return false;
+    
+    // Convert Firestore timestamp to Date if necessary
+    const matchDate = matchTimestamp.toDate ? 
+      matchTimestamp.toDate() : 
+      new Date(matchTimestamp);
+    
+    const now = new Date();
+    const timeDiff = now.getTime() - matchDate.getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    return hoursDiff < 24;
+  };
+  
   const renderConversationItem = ({ item }: { item: Conversation }) => {
-    // Get the other participant
     const otherParticipantId = item.participants.find(p => p !== user?.uid) || '';
     const otherParticipantName = item.participantNames?.[otherParticipantId] || 'User';
     const otherParticipantPhoto = item.participantPhotos?.[otherParticipantId] || '';
     
-    // Get the last message text and time
     const lastMessageText = typeof item.lastMessage?.text === 'string' 
       ? truncateText(item.lastMessage.text) 
       : 'No messages yet';
     
- 
+   
       
-    // Check if this is a new match (less than 24h old)
-    // Look in both matches and chattingWith arrays
-    const matchData = matches.find(m => m.userId === otherParticipantId) || 
-                     chattingWith.find(c => c.userId === otherParticipantId);
-    const shouldBlurImage = matchData && isNewMatch(matchData.matchTimestamp);
+    const correspondingMatch = contextMatches.find((m: ContextMatchData) => m.userId === otherParticipantId);
+    
+    let shouldBlurImage = false;
+    if (item.createdAt) {
+      shouldBlurImage = isNewMatch(item.createdAt);
+    } else if (correspondingMatch && correspondingMatch.matchTimestamp) {
+      shouldBlurImage = isNewMatch(correspondingMatch.matchTimestamp);
+    }
     
     return (
       <TouchableOpacity 
@@ -482,10 +328,9 @@ export default function InboxScreen() {
           <View style={styles.conversationBlurContainer}>
             <Image 
               source={{ uri: otherParticipantPhoto || 'https://via.placeholder.com/60' }} 
-              style={styles.avatar} 
+              style={[styles.avatar, ]} 
               blurRadius={40}
             />
-            
           </View>
         ) : (
           <Image 
@@ -523,63 +368,36 @@ export default function InboxScreen() {
     );
   };
   
-  const renderMatchItem = ({ item }: { item: MatchData }) => {
-    const shouldBlur = isNewMatch(item.matchTimestamp);
-
+  const renderMatchItem = ({ item }: { item: ContextMatchData }) => {
+    const shouldBlurImage = isNewMatch(item.matchTimestamp);
+    
     return (
-      <TouchableOpacity
+      <TouchableOpacity 
         style={styles.matchItem}
-        onPress={() => createConversation(item)}
+        onPress={() => {
+          createConversation(item);
+        }}
       >
-        <View style={styles.matchAvatarContainer}>
-          {shouldBlur ? (
-            <View style={styles.blurContainer}>
-              <Image
+        <View style={styles.matchImageContainer}>
+          {shouldBlurImage ? (
+            <View style={styles.matchBlurContainer}>
+              <Image 
                 source={{ uri: item.profilePic || 'https://via.placeholder.com/60' }}
-                style={styles.matchAvatar}
-                blurRadius={40}
+                style={[styles.matchAvatar, { opacity: 0.3 }]}
+                blurRadius={15}
               />
-              
             </View>
           ) : (
-            <Image
-              source={{ uri: item.profilePic || 'https://via.placeholder.com/60' }}
-              style={styles.matchAvatar}
+            <Image 
+              source={{ uri: item.profilePic || 'https://via.placeholder.com/60' }} 
+              style={styles.matchAvatar} 
             />
           )}
         </View>
-        <Text style={styles.matchName}>{item.displayName}</Text>
-      </TouchableOpacity>
-    );
-  };
-  
-  const renderMessage = ({ item }: { item: Message }) => {
-    const isOwnMessage = item.senderId === user?.uid;
-    
-    // Ensure we're only rendering string text
-    const messageText = typeof item.text === 'string' ? truncateText(item.text, 300) : 'Message unavailable';
-    const timeString = item.timestamp ? formatMessageTime(item.timestamp) : '';
-    
-    return (
-      <View style={[
-        styles.messageContainer,
-        isOwnMessage ? styles.ownMessageContainer : styles.otherMessageContainer
-      ]}>
-        <View style={[
-          styles.messageBubble,
-          isOwnMessage ? styles.ownMessageBubble : styles.otherMessageBubble
-        ]}>
-          <Text style={[
-            styles.messageText,
-            isOwnMessage ? styles.ownMessageText : styles.otherMessageText
-          ]}>
-            {messageText}
-          </Text>
-        </View>
-        <Text style={styles.messageTime}>
-          {timeString}
+        <Text style={styles.matchName} numberOfLines={1}>
+          {item.displayName}
         </Text>
-      </View>
+      </TouchableOpacity>
     );
   };
   
@@ -593,68 +411,21 @@ export default function InboxScreen() {
     </View>
   );
   
-  const getOtherParticipantId = (conversation: Conversation): string => {
-    if (!user) return '';
-    return conversation.participants.find(id => id !== user.uid) || '';
-  };
-  
-  const renderChatHeader = () => {
-    if (!selectedConversation) return null;
+  // Add the migration function to update old conversation formats
+  const migrateConversationFormat = async (conversationId: string, oldData: any) => {
+    if (!conversationId || typeof oldData.lastMessage !== 'string') return;
     
-    const otherParticipantId = getOtherParticipantId(selectedConversation);
+    try {
+      await updateDoc(doc(db, 'conversations', conversationId), {
+        lastMessage: {
+          text: oldData.lastMessage || 'Start a conversation!',
+          timestamp: oldData.lastMessageTimestamp || Timestamp.now()
+        }
+      });
     
-    return (
-      <View style={styles.chatHeader}>
-        <TouchableOpacity onPress={() => setSelectedConversation(null)}>
-          <Ionicons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-        
-        <Image 
-          source={{ uri: selectedConversation.participantPhotos[otherParticipantId] || 'https://via.placeholder.com/40' }} 
-          style={styles.chatAvatar} 
-        />
-        
-        <Text style={styles.chatName}>{selectedConversation.participantNames[otherParticipantId]}</Text>
-      </View>
-    );
-  };
-  
-  const renderChatInterface = () => {
-    return (
-      <View style={styles.chatContainer}>
-        {renderChatHeader()}
-        
-        {/* Messages */}
-        <FlatList
-          data={messages}
-          keyExtractor={(item) => item.id || item.text}
-          renderItem={renderMessage}
-          contentContainerStyle={styles.messagesContainer}
-          inverted={false}
-        />
-        
-        {/* Message input */}
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="Type a message..."
-            value={newMessage}
-            onChangeText={setNewMessage}
-            multiline
-          />
-          <TouchableOpacity 
-            style={[
-              styles.sendButton,
-              !newMessage.trim() && styles.disabledSendButton
-            ]}
-            onPress={sendMessage}
-            disabled={!newMessage.trim()}
-          >
-            <Ionicons name="send" size={20} color="#FFF" />
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
+    } catch (error) {
+      console.error(`Error migrating conversation ${conversationId}:`, error);
+    }
   };
   
   // Fix the renderWarning component
@@ -671,160 +442,101 @@ export default function InboxScreen() {
     );
   };
   
-  // Handle unblocking a user
-  const handleUnblockUser = async (userId: string) => {
-    if (!userId) return;
-    
-    Alert.alert(
-      "Unblock User",
-      "Are you sure you want to unblock this user? They may appear in your matches again.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Unblock", 
-          onPress: async () => {
-            try {
-              setUnblockingUserId(userId);
-              setIsUnblocking(true);
-              await unblockUser(userId);
-              setUnblockingUserId(null);
-            } catch (error) {
-              console.error('Error unblocking user:', error);
-              Alert.alert('Error', 'Failed to unblock user. Please try again.');
-            } finally {
-              setIsUnblocking(false);
-            }
-          }
-        }
-      ]
-    );
-  };
+  // --- NEW: Fetch Blocked User Details ---
+  const fetchBlockedUsersDetails = useCallback(async () => {
+    if (!user || blockedUsers.length === 0) {
+        setBlockedUsersInfo([]);
+        return;
+    }
 
-  // Render a blocked user item
-  const renderBlockedUserItem = ({ item }: { item: MatchData }) => {
-    const isBeingUnblocked = isUnblocking && unblockingUserId === item.userId;
-    
-    return (
-      <View style={styles.blockedUserItem}>
-        <Image 
-          source={{ uri: item.profilePic || 'https://via.placeholder.com/40' }}
-          style={styles.blockedUserAvatar}
+    setIsLoadingBlockList(true);
+    try {
+        const userPromises = blockedUsers.map(userId => getDoc(doc(db, 'users', userId)));
+        const userDocs = await Promise.all(userPromises);
+
+        const detailedList: BlockedUserInfo[] = userDocs
+            .filter(docSnapshot => docSnapshot.exists()) // Only include users that still exist
+            .map(docSnapshot => {
+                const data = docSnapshot.data();
+                const profile = data?.profile || {};
+                return {
+                    userId: docSnapshot.id,
+                    displayName: profile.displayName || 'Unknown User',
+                    profilePic: profile.profilePic || '' // Add a default placeholder if needed
+                };
+            });
+
+        setBlockedUsersInfo(detailedList);
+    } catch (error) {
+        console.error("Error fetching blocked users details:", error);
+        Alert.alert("Error", "Could not load block list details.");
+    } finally {
+        setIsLoadingBlockList(false);
+    }
+  }, [user, blockedUsers]); // Depend on context's blockedUsers array
+
+  // --- NEW: Handle Unblock Action ---
+   const handleUnblock = (userIdToUnblock: string) => {
+        if (isUnblocking) return; // Prevent multiple clicks
+
+        Alert.alert(
+            "Unblock User",
+            `Are you sure you want to unblock this user? They will be able to match with you again.`,
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Unblock",
+                    style: "default",
+                    onPress: async () => {
+                        setIsUnblocking(userIdToUnblock);
+                        try {
+                            await unblockUser(userIdToUnblock);
+                            // Refresh the detailed list after successful unblock
+                            // Note: fetchBlockedUsersDetails will run automatically
+                            // if 'blockedUsers' dependency in its useCallback is correct
+                            // and if unblockUser updates the context's blockedUsers state.
+                            // We might need an explicit refresh if context updates are slow.
+                            // For now, assume context update triggers refresh.
+                        } catch (error) {
+                            console.error("Unblock failed:", error);
+                            Alert.alert("Error", "Failed to unblock user. Please try again.");
+                        } finally {
+                            setIsUnblocking(null);
+                        }
+                    },
+                },
+            ]
+        );
+    };
+
+  // --- NEW: Effect to load block list details when modal opens ---
+  useEffect(() => {
+      if (isBlockListVisible && user) {
+          fetchBlockedUsersDetails();
+      }
+  }, [isBlockListVisible, user, fetchBlockedUsersDetails]); // Rerun when modal opens or user/details fetch fn changes
+
+  // --- NEW: Render Blocked User Item ---
+  const renderBlockedUserItem = ({ item }: { item: BlockedUserInfo }) => (
+    <View style={styles.blockedUserItem}>
+        <Image
+            source={{ uri: item.profilePic || 'https://via.placeholder.com/40' }}
+            style={styles.blockedAvatar}
         />
-        <Text style={styles.blockedUserName}>{item.displayName}</Text>
+        <Text style={styles.blockedUserName} numberOfLines={1}>{item.displayName}</Text>
         <TouchableOpacity
-          style={[styles.unblockButton, isBeingUnblocked && styles.disabledButton]}
-          onPress={() => handleUnblockUser(item.userId)}
-          disabled={isBeingUnblocked}
+            style={[styles.unblockButton, isUnblocking === item.userId && styles.unblockButtonDisabled]}
+            onPress={() => handleUnblock(item.userId)}
+            disabled={!!isUnblocking} // Disable all buttons if any unblock is in progress
         >
-          {isBeingUnblocked ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.unblockButtonText}>Unblock</Text>
-          )}
+            {isUnblocking === item.userId ? (
+                <ActivityIndicator size="small" color={COLORS.secondary} />
+            ) : (
+                <Text style={styles.unblockButtonText}>Unblock</Text>
+            )}
         </TouchableOpacity>
-      </View>
-    );
-  };
-
-  // Render the blocked users modal
-  const renderBlockedUsersModal = () => {
-    return (
-      <Modal
-        visible={showBlockedUsers}
-        animationType="slide"
-        onRequestClose={() => setShowBlockedUsers(false)}
-      >
-        <SafeAreaView style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity 
-              style={styles.modalCloseButton}
-              onPress={() => setShowBlockedUsers(false)}
-            >
-              <Ionicons name="close" size={24} color={COLORS.secondary} />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Blocked Users</Text>
-            <View style={styles.modalHeaderSpacer} />
-          </View>
-          
-          {blockedUsers.length === 0 ? (
-            <View style={styles.emptyBlockedContainer}>
-              <Ionicons name="ban" size={60} color="#ccc" />
-              <Text style={styles.emptyBlockedText}>No blocked users</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={blockedUsers}
-              keyExtractor={item => item.userId}
-              renderItem={renderBlockedUserItem}
-              contentContainerStyle={styles.blockedUsersList}
-            />
-          )}
-        </SafeAreaView>
-      </Modal>
-    );
-  };
-
-  // Render the options menu
-  const renderOptionsMenu = () => {
-    return (
-      <Modal
-        visible={showOptionsMenu}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowOptionsMenu(false)}
-      >
-        <TouchableOpacity 
-          style={styles.optionsOverlay}
-          activeOpacity={1}
-          onPress={() => setShowOptionsMenu(false)}
-        >
-          <View style={styles.optionsContainer}>
-            <TouchableOpacity 
-              style={styles.optionItem}
-              onPress={() => {
-                setShowOptionsMenu(false);
-                setShowBlockedUsers(true);
-              }}
-            >
-              <Ionicons name="ban" size={24} color={COLORS.secondary} style={styles.optionIcon} />
-              <Text style={styles.optionText}>Blocked Users</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    );
-  };
-  
-  // Add a cleanup effect separate from the loadConversations effect
-  useEffect(() => {
-    // This effect is just for cleanup when component unmounts
-    return () => {
-      if (unsubscribeListener) {
-        unsubscribeListener();
-      }
-    };
-  }, [unsubscribeListener]);
-
-  // Add logout listener in another useEffect
-  useEffect(() => {
-    const handleLogout = () => {
-      // Clean up any Firebase listeners when user logs out
-      if (unsubscribeListener) {
-        unsubscribeListener();
-        setUnsubscribeListener(null);
-      }
-      // Also clear conversations data
-      setConversations([]);
-    };
-
-    // Listen for logout events
-    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
-
-    // Clean up
-    return () => {
-      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
-    };
-  }, [unsubscribeListener, setConversations]);
+    </View>
+  );
   
   if (isLoading) {
     return (
@@ -836,48 +548,36 @@ export default function InboxScreen() {
   
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Blocked Users Modal */}
-      {renderBlockedUsersModal()}
-      
-      {/* Options Menu */}
-      {renderOptionsMenu()}
-      
-      {/* Warning message if needed */}
-      {indexWarning && renderWarningMessage()}
-      
-      {/* Header */}
+      {/* NEW: Header with Options Button */}
       <View style={styles.header}>
-        <Text style={styles.title}>Inbox</Text>
-        <TouchableOpacity 
-          style={styles.optionsButton}
-          onPress={() => setShowOptionsMenu(true)}
-        >
-          <Ionicons name="ellipsis-vertical" size={24} color={COLORS.secondary} />
-        </TouchableOpacity>
+          <Text style={styles.headerTitle}>Inbox</Text>
+          <TouchableOpacity
+              style={styles.optionsButton}
+              onPress={() => setIsBlockListVisible(true)} // Open block list modal
+          >
+              <Ionicons name="ellipsis-vertical" size={24} color={COLORS.darkestMaroon} />
+          </TouchableOpacity>
       </View>
       
-      {/* Your Matches Section */}
-      <Text style={styles.sectionTitle}>Your Matches</Text>
-      <View style={styles.matchesContainer}>
-        <FlatList
-          horizontal
-          data={matches}
+      {indexWarning && renderWarningMessage()}
+      
+      {/* Matches row */}
+      <View>
+        <Text style={styles.sectionTitle}>Your Matches</Text>
+        <FlatList<ContextMatchData>
+          data={availableMatches}
           keyExtractor={(item) => item.userId}
           renderItem={renderMatchItem}
+          horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.matchesList}
+          contentContainerStyle={styles.matchesContainer}
           ListEmptyComponent={
-            <View style={styles.emptyMatchesContainer}>
-              <Text style={styles.emptyText}>No matches yet</Text>
-            </View>
+            <Text style={styles.noMatchesText}>No available matches to chat with.</Text>
           }
         />
       </View>
       
-      {/* Rest of the component */}
-      {selectedConversation ? (
-        renderChatInterface()
-      ) : (
+      {/* Always show the conversations list now */}
         <>
           <Text style={styles.sectionTitle}>Conversations</Text>
           {conversations.length > 0 ? (
@@ -891,7 +591,39 @@ export default function InboxScreen() {
             renderEmptyInbox()
           )}
         </>
-      )}
+
+       {/* NEW: Block List Modal */}
+       <Modal
+            animationType="slide"
+            transparent={true}
+            visible={isBlockListVisible}
+            onRequestClose={() => setIsBlockListVisible(false)}
+        >
+            <View style={styles.modalOverlay}>
+                <View style={styles.modalContainer}>
+                    <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>Blocked Users</Text>
+                        <TouchableOpacity onPress={() => setIsBlockListVisible(false)}>
+                            <Ionicons name="close" size={28} color={COLORS.darkestMaroon} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {isLoadingBlockList ? (
+                        <ActivityIndicator size="large" color={COLORS.secondary} style={{marginTop: 30}}/>
+                    ) : blockedUsersInfo.length === 0 ? (
+                        <Text style={styles.emptyBlockListText}>You haven't blocked anyone yet.</Text>
+                    ) : (
+                        <FlatList
+                            data={blockedUsersInfo}
+                            keyExtractor={(item) => item.userId}
+                            renderItem={renderBlockedUserItem}
+                            style={styles.blockList}
+                        />
+                    )}
+                </View>
+            </View>
+        </Modal>
+
     </SafeAreaView>
   );
 }
@@ -906,6 +638,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f8f8f8',
+  },
+  header: { // New Header style
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingVertical: 15, // Adjusted padding
+      borderBottomWidth: 1,
+      borderBottomColor: '#e5e5e5',
+      backgroundColor: '#fff', // Added background
+  },
+  headerTitle: { // New Header Title style
+      fontSize: 24,
+      fontWeight: 'bold',
+      color: COLORS.darkestMaroon,
+  },
+  optionsButton: { // New Options Button style
+      padding: 5, // Make it easier to tap
   },
   sectionTitle: {
     fontSize: 18,
@@ -924,17 +674,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
     width: 80,
   },
-  matchAvatarContainer: {
+  matchImageContainer: {
     position: 'relative',
-  },
-  blurContainer: {
-    position: 'relative',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   matchAvatar: {
     width: 60,
@@ -943,7 +684,17 @@ const styles = StyleSheet.create({
     borderWidth: .5,
     borderColor: COLORS.secondary,
   },
- 
+  matchBlurContainer: {
+    position: 'relative',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: .5,
+    borderColor: COLORS.secondary,
+  },
   matchName: {
     marginTop: 5,
     fontSize: 12,
@@ -976,9 +727,6 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-  selectedConversation: {
-    backgroundColor: '#f0f0f5',
-  },
   avatar: {
     width: 50,
     height: 50,
@@ -998,10 +746,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
-  },
-  timeText: {
-    fontSize: 12,
-    color: '#888',
   },
   lastMessageContainer: {
     flexDirection: 'row',
@@ -1051,102 +795,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
   },
-  chatContainer: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    marginTop: 15,
-  },
-  chatHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e5e5',
-  },
-  backButton: {
-    padding: 5,
-  },
-  chatAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginLeft: 10,
-  },
-  chatName: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginLeft: 12,
-    color: '#333',
-  },
-  messagesContainer: {
-    padding: 15,
-    paddingBottom: 20,
-  },
-  messageContainer: {
-    marginBottom: 15,
-    maxWidth: '80%',
-  },
-  ownMessageContainer: {
-    alignSelf: 'flex-end',
-  },
-  otherMessageContainer: {
-    alignSelf: 'flex-start',
-  },
-  messageBubble: {
-    borderRadius: 18,
-    padding: 12,
-    marginBottom: 4,
-  },
-  ownMessageBubble: {
-    backgroundColor: COLORS.secondary,
-  },
-  otherMessageBubble: {
-    backgroundColor: '#e9e9e9',
-  },
-  messageText: {
-    fontSize: 16,
-    lineHeight: 22,
-  },
-  ownMessageText: {
-    color: '#fff',
-  },
-  otherMessageText: {
-    color: '#333',
-  },
-  messageTime: {
-    fontSize: 12,
-    color: '#888',
-    alignSelf: 'flex-end',
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e5e5',
-  },
-  input: {
-    flex: 1,
-    backgroundColor: '#f2f2f2',
-    borderRadius: 20,
-    padding: 10,
-    maxHeight: 100,
-    fontSize: 16,
-  },
-  sendButton: {
-    backgroundColor: COLORS.secondary,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 10,
-  },
-  disabledSendButton: {
-    opacity: 0.5,
-  },
   warningContainer: {
     margin: 10,
     padding: 15,
@@ -1173,136 +821,80 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     overflow: 'hidden',
   },
- 
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.secondary,
-  },
-  optionsButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-  },
-  optionsOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
-  },
-  optionsContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 10,
-    marginTop: 60,
-    marginRight: 20,
-    width: 200,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  optionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-  },
-  optionIcon: {
-    marginRight: 10,
-  },
-  optionText: {
-    fontSize: 16,
-    color: COLORS.secondary,
+  // Styles for Block List Modal
+  modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+      justifyContent: 'flex-end', // Position modal at the bottom
   },
   modalContainer: {
-    flex: 1,
-    backgroundColor: '#fff',
+      backgroundColor: 'white',
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      padding: 20,
+      maxHeight: '70%', // Limit modal height
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 5,
+      elevation: 10,
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e5e5',
-  },
-  modalCloseButton: {
-    padding: 8,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: '#eee',
+      paddingBottom: 10,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.secondary,
+      fontSize: 20,
+      fontWeight: '600',
+      color: COLORS.darkestMaroon,
   },
-  modalHeaderSpacer: {
-    width: 40,
-  },
-  blockedUsersList: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+  blockList: {
+      flexGrow: 0, // Prevent FlatList from taking full height
   },
   blockedUserItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: '#f0f0f0',
   },
-  blockedUserAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 16,
+  blockedAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      marginRight: 15,
   },
   blockedUserName: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
+      flex: 1, // Take available space
+      fontSize: 16,
+      color: '#333',
+      marginRight: 10,
   },
   unblockButton: {
-    backgroundColor: COLORS.secondary,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
+      backgroundColor: COLORS.secondary,
+      paddingVertical: 8,
+      paddingHorizontal: 15,
+      borderRadius: 20,
+  },
+  unblockButtonDisabled: {
+      opacity: 0.5,
+      backgroundColor: '#ccc', // Grey out when disabled
   },
   unblockButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
+      color: '#fff',
+      fontSize: 14,
+      fontWeight: '500',
   },
-  disabledButton: {
-    opacity: 0.6,
-  },
-  emptyBlockedContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyBlockedText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#999',
-  },
-  matchesList: {
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-  },
-  emptyMatchesContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  emptyBlockListText: {
+      textAlign: 'center',
+      fontSize: 16,
+      color: '#888',
+      marginTop: 30,
+      marginBottom: 20,
   },
 });

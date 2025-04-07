@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -27,7 +27,6 @@ import { useFavorites } from '../../context/FavoritesContext';
 
 const { width, height } = Dimensions.get('window');
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
-const TMDB_API_KEY = 'b2b68cd65cf02c8da091b2857084bd4d';
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5; // Assuming a default value, actual implementation needed
 
@@ -133,8 +132,6 @@ export default function SeriesDetailsScreen() {
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [forceRender, setForceRender] = useState(0); // Add a counter to force re-renders
 
-
-
   // Helper function to convert ShowDetails to ShowItem for favorites functions
   const toShowItem = (details: ShowDetails): ShowItem => ({
     id: details.id,
@@ -167,23 +164,33 @@ export default function SeriesDetailsScreen() {
     }
   }, [showId, showType]);
 
-  const fetchShowDetails = async () => {
-    if (!showId) return;
+  // Function to fetch show details from TMDB
+  const fetchShowDetails = useCallback(async () => {
+    if (!showId || !showType) {
+      console.error("Show ID or type missing");
+      return;
+    }
     
     setIsLoading(true);
-    setError(null);
-    
+    // USE environment variable
+    const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
+
     try {
-      // Fetch show details from TMDB
-      const detailsResponse = await fetch(
-        `https://api.themoviedb.org/3/tv/${showId}?api_key=${TMDB_API_KEY}&append_to_response=similar`
-      );
+      // Check if key is defined
+      if (!TMDB_API_KEY) {
+        throw new Error("TMDB API Key is not defined!");
+      }
+
+      // Construct the API URL
+      const url = `https://api.themoviedb.org/3/tv/${showId}?api_key=${TMDB_API_KEY}&append_to_response=similar`;
       
-      if (!detailsResponse.ok) {
+      const response = await fetch(url);
+      
+      if (!response.ok) {
         throw new Error('Failed to fetch show details');
       }
       
-      const data = await detailsResponse.json();
+      const data = await response.json();
       
       // Format show details
       setShowDetails({
@@ -219,55 +226,17 @@ export default function SeriesDetailsScreen() {
         setSimilarShows(formattedSimilar);
       }
     } catch (error) {
-      console.error('Error fetching show details:', error);
+      console.error("Error fetching show details:", error);
       setError('Failed to load show details. Please try again.');
+      setFeedbackModal({
+        visible: true,
+        message: error instanceof Error ? error.message : 'Failed to load show details. Please try again.',
+        type: 'error'
+      });
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const fetchSimilarShows = async (showId: string, showType: 'anime' | 'kdrama') => {
-    setLoadingSimilar(true);
-    try {
-      const response = await fetch(
-        `https://api.themoviedb.org/3/tv/${showId}/similar?api_key=${TMDB_API_KEY}&language=en-US&page=1`
-      );
-      const data = await response.json();
-      
-      if (data.success === false || !data.results) {
-        throw new Error('Failed to fetch similar shows');
-      }
-      
-      // Filter similar shows by type if possible
-      let filteredShows = data.results.slice(0, 6);
-      
-      if (showType === 'kdrama') {
-        // Filter for Korean language shows
-        filteredShows = filteredShows.filter((show: any) => 
-          show.original_language === 'ko' || 
-          (show.origin_country && show.origin_country.includes('KR'))
-        );
-      } else if (showType === 'anime') {
-        // Filter for Japanese/animation shows if possible
-        filteredShows = filteredShows.filter((show: any) => 
-          (show.origin_country && show.origin_country.includes('JP')) ||
-          show.genre_ids?.includes(16) // Animation genre
-        );
-      }
-      
-      // Map to add type
-      const typedShows = filteredShows.map((show: any) => ({
-        ...show,
-        type: showType
-      }));
-      
-      setSimilarShows(typedShows.slice(0, 6));
-    } catch (error) {
-      console.error('Error fetching similar shows:', error);
-    } finally {
-      setLoadingSimilar(false);
-    }
-  };
+  }, [showId, showType]);
 
   const handleFavoriteToggle = () => {
     if (!showDetails) return;
@@ -275,7 +244,7 @@ export default function SeriesDetailsScreen() {
     // Convert ShowDetails to ShowItem format for favorites context
     const show = toShowItem(showDetails);
     
-    (`Series Details: Toggling favorite for ${show.title} (${show.id}), current status: ${isFavorite(show) ? 'favorite' : 'not favorite'}`);
+  
     
     setSelectedShowForFavorite(show);
     

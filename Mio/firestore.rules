@@ -15,8 +15,8 @@ service cloud.firestore {
       // First-time profile creation or general profile updates
       allow update: if request.auth != null && (
         request.auth.uid == userId || 
-        // Simplified rule for matches, chattingWith, and blockedUsers updates
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['matches', 'chattingWith', 'blockedUsers']))
+        // Allow updates to matches and blockedUsers fields
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['matches', 'blockedUsers']))
       );
       
       allow delete: if request.auth != null && request.auth.uid == userId;
@@ -87,16 +87,6 @@ service cloud.firestore {
         
         allow update: if request.auth != null && 
                        get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants.hasAny([request.auth.uid]);
-      }
-      
-      // Allow delete if the user is a participant
-      allow delete: if request.auth != null && 
-                    resource.data.participants.hasAny([request.auth.uid]);
-      
-      // Also add delete permission for message batches
-      match /messageBatches/{batchId} {
-        allow delete: if request.auth != null && 
-                      get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants.hasAny([request.auth.uid]);
       }
     }
   }

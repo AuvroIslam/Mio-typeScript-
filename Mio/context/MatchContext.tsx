@@ -1,26 +1,25 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useMemo } from 'react';
 import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
+
   doc, 
   getDoc, 
   setDoc, 
   updateDoc, 
   arrayUnion, 
+  arrayRemove,
  
   Timestamp,
  
-  deleteDoc
+  writeBatch
 } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from "firebase/functions";
 import { AppState, AppStateStatus } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../config/firebaseConfig';
 import { useAuth } from './AuthContext';
 import { useFavorites } from './FavoritesContext';
 
 import * as Haptics from 'expo-haptics';
-import { logoutEventEmitter, LOGOUT_EVENT } from './AuthContext';
 
 // Constants
 const MATCH_THRESHOLD = 3;
@@ -47,12 +46,13 @@ export interface MatchData {
   age?: number | string;
   location?: string;
   gender?: string;
+  chattingWith?: boolean; // Track if users are already in a conversation
 }
 
-interface MatchContextType {
+
+
+interface MatchContext {
   matches: MatchData[];
-  chattingWith: MatchData[];
-  blockedUsers: MatchData[];
   isSearching: boolean;
   cooldownEndTime: Date | null;
   searchMatches: () => Promise<number>;
@@ -63,19 +63,19 @@ interface MatchContextType {
   canSearch: boolean;
   formatTime: (seconds: number) => string;
   error: string | null;
-  unmatchUser: (userId: string) => Promise<void>;
-  blockUser: (userId: string) => Promise<void>;
-  unblockUser: (userId: string) => Promise<void>; 
-  moveToChattingWith: (userId: string) => Promise<void>;
+  unmatchUser: (userId: string, isBlockAction?: boolean) => Promise<void>;
   loadPersistedMatches: () => Promise<void>;
-  isNewMatch: (matchTimestamp: any) => boolean;
+  updateChattingWithStatus: (userId: string) => Promise<boolean>;
+  blockUser: (userIdToBlock: string) => Promise<void>;
+  unblockUser: (userIdToUnblock: string) => Promise<void>;
+  blockedUsers: string[];
 }
 
 interface MatchContextProviderProps {
   children: ReactNode;
 }
 
-const MatchContext = createContext<MatchContextType | undefined>(undefined);
+const MatchContext = createContext<MatchContext | undefined>(undefined);
 
 export const useMatch = () => {
   const context = useContext(MatchContext);
@@ -87,12 +87,10 @@ export const useMatch = () => {
 
 export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ children }) => {
   const { user } = useAuth();
-
+ 
   const { userFavorites } = useFavorites();
   
   const [matches, setMatches] = useState<MatchData[]>([]);
-  const [chattingWith, setChattingWith] = useState<MatchData[]>([]);
-  const [blockedUsers, setBlockedUsers] = useState<MatchData[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [cooldownEndTime, setCooldownEndTime] = useState<Date | null>(null);
   const [remainingTimeString, setRemainingTimeString] = useState<string>('');
@@ -101,6 +99,11 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+  const [blockedUsers, setBlockedUsers] = useState<string[]>([]);
+  
+  // Initialize Firebase Functions
+  const functions = getFunctions();
+  const callDeleteConversationData = httpsCallable(functions, 'deleteConversationData');
   
   // Load matches when the user changes
   useEffect(() => {
@@ -109,8 +112,10 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       loadUserSearchData();
     } else {
       setMatches([]);
-      setChattingWith([]);
       setBlockedUsers([]);
+      setCooldownEndTime(null);
+      setLastSearchTime(null);
+      setSearchCount(0);
     }
   }, [user]);
   
@@ -179,6 +184,10 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       
       if (userDoc.exists()) {
         const data = userDoc.data();
+        const profile = data.profile || {};
+        
+        // Load block list
+        setBlockedUsers(profile.blockedUsers || []);
         
         // Load match search count
         if (data.matchSearchCount !== undefined) {
@@ -211,9 +220,21 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
             }
           }
         }
+      } else {
+        // User doc doesn't exist, reset relevant states
+        setBlockedUsers([]);
+        setSearchCount(0);
+        setLastSearchTime(null);
+        setCooldownEndTime(null);
       }
     } catch (error) {
-      // Silent error handling
+      console.error("Error loading user search data:", error);
+      setError('Failed to load user settings.');
+      // Reset states on error
+      setBlockedUsers([]);
+      setSearchCount(0);
+      setLastSearchTime(null);
+      setCooldownEndTime(null);
     }
   }, [user]);
   
@@ -223,24 +244,15 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
     setIsLoading(true);
     try {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
-      if (userDoc.exists()) {
-        // Load matches
+      if (userDoc.exists() && userDoc.data().matches) {
         const userMatches = userDoc.data().matches || [];
+        // Load all matches regardless of chattingWith state
         setMatches(userMatches);
-        
-        // Load chatting with
-        const userChattingWith = userDoc.data().chattingWith || [];
-        setChattingWith(userChattingWith);
-        
-        // Load blocked users
-        const userBlockedUsers = userDoc.data().blockedUsers || [];
-        setBlockedUsers(userBlockedUsers);
       } else {
         setMatches([]);
-        setChattingWith([]);
-        setBlockedUsers([]);
       }
     } catch (error) {
+      console.error("Error loading matches:", error);
       setError('Failed to load your matches');
     } finally {
       setIsLoading(false);
@@ -286,6 +298,7 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         cooldownEndTime: cooldownEnd
       });
     } catch (error) {
+      console.error("Error setting cooldown:", error);
       // Silent error handling
     }
   }, [user, searchCount]);
@@ -295,30 +308,16 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
     
     try {
       const showUserRef = doc(db, 'showUsers', showId);
-      const showUserDoc = await getDoc(showUserRef);
       
-      if (showUserDoc.exists()) {
-        const data = showUserDoc.data();
-        const users = data.users || [];
-        
-        // Check if user is already in the list
-        const userExists = users.some((u: any) => u.userId === user.uid);
-        
-        if (!userExists) {
-          // User doesn't exist, add to list (without timestamp)
-          await updateDoc(showUserRef, {
-            users: arrayUnion({ userId: user.uid })
-          });
-        }
-        // If user exists, do nothing - no need to update timestamp
-      } else {
-        // Document doesn't exist, create it (without timestamp)
+      // Use setDoc with merge: true to efficiently add the user ID
+      // It creates the doc if it doesn't exist, or adds the ID to the array if it does.
+      // arrayUnion prevents duplicates.
         await setDoc(showUserRef, {
-          showId,
-          users: [{ userId: user.uid }]
-        });
-      }
+        showId: showId, // Optional: keep showId for clarity
+        users: arrayUnion(user.uid)
+      }, { merge: true });
     } catch (error) {
+      console.error("Error updating show users:", error);
       // Silent error handling
     }
   }, [user]);
@@ -339,6 +338,7 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       
       return true;
     } catch (error) {
+      console.error("Error adding match to both users:", error);
       return false;
     }
   }, []);
@@ -347,277 +347,182 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
     return userMatches.some(match => match.userId === matchedUserId);
   }, []);
   
-  const isUserBlocked = useCallback((blockedUsersList: MatchData[], userId: string): boolean => {
-    return blockedUsersList.some(user => user.userId === userId);
-  }, []);
-  
-  const isUserChattingWith = useCallback((chattingWithList: MatchData[], userId: string): boolean => {
-    return chattingWithList.some(user => user.userId === userId);
-  }, []);
-  
-  const moveToChattingWith = useCallback(async (matchedUserId: string) => {
-    if (!user) return;
+  const updateChattingWithStatus = useCallback(async (matchedUserId: string): Promise<boolean> => {
+    if (!user) return false;
     
     try {
-      // Get current user's data
+      // Get the current user's document
       const userRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userRef);
       
-      if (!userDoc.exists()) return;
-      
-      const userData = userDoc.data();
-      const userMatches = userData.matches || [];
-      const userChattingWith = userData.chattingWith || [];
-      
-      // Find the match to move
-      const matchToMove = userMatches.find((match: MatchData) => match.userId === matchedUserId);
-      
-      if (!matchToMove) return; // Match not found
-      
-      // Check if already in chattingWith
-      const alreadyChatting = userChattingWith.some((chat: MatchData) => chat.userId === matchedUserId);
-      
-      if (alreadyChatting) return; // Already chatting with this user
-      
-      // Update current user - remove from matches, add to chattingWith
-        const updatedMatches = userMatches.filter((match: MatchData) => match.userId !== matchedUserId);
-        
-        await updateDoc(userRef, {
-        matches: updatedMatches,
-        chattingWith: arrayUnion(matchToMove)
-        });
-      
-      // Do the same for the other user
+      // Get the matched user's document
       const matchedUserRef = doc(db, 'users', matchedUserId);
       const matchedUserDoc = await getDoc(matchedUserRef);
       
-      if (matchedUserDoc.exists()) {
-        const matchedUserData = matchedUserDoc.data();
-        const matchedUserMatches = matchedUserData.matches || [];
-        const matchedUserChattingWith = matchedUserData.chattingWith || [];
-        
-        // Find the current user in the matched user's matches
-        const currentUserMatch = matchedUserMatches.find((match: MatchData) => match.userId === user.uid);
-        
-        if (currentUserMatch && !matchedUserChattingWith.some((chat: MatchData) => chat.userId === user.uid)) {
-          // Update matched user
-        const updatedMatchedUserMatches = matchedUserMatches.filter((match: MatchData) => match.userId !== user.uid);
-        
-        await updateDoc(matchedUserRef, {
-            matches: updatedMatchedUserMatches,
-            chattingWith: arrayUnion(currentUserMatch)
-        });
-        }
+      if (!userDoc.exists() || !matchedUserDoc.exists()) {
+        return false;
       }
       
-      // Update local state
-      setMatches(updatedMatches);
-      setChattingWith(prev => [...prev, matchToMove]);
+      // Begin a batch update for atomic operations
+      const batch = writeBatch(db);
       
-    } catch (error) {
-      console.error("Error moving to chatting with:", error);
-    }
-  }, [user]);
-  
-  const unmatchUser = useCallback(async (matchedUserId: string) => {
-    if (!user) return;
-    
-    try {
-      // Get current user's data
-      const userRef = doc(db, 'users', user.uid);
-      const userDoc = await getDoc(userRef);
-      
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const userMatches = userData.matches || [];
-        const userChattingWith = userData.chattingWith || [];
-        
-        // Remove from matches if present
-        let updatedMatches = userMatches;
-        const inMatches = userMatches.some((match: MatchData) => match.userId === matchedUserId);
-        
-        if (inMatches) {
-          updatedMatches = userMatches.filter((match: MatchData) => match.userId !== matchedUserId);
+      // Update current user's match with matched user
+      const userMatches = userDoc.data().matches || [];
+      const updatedUserMatches = userMatches.map((match: MatchData) => {
+        if (match.userId === matchedUserId) {
+          return {...match, chattingWith: true};
         }
-        
-        // Remove from chattingWith if present
-        let updatedChattingWith = userChattingWith;
-        const inChattingWith = userChattingWith.some((chat: MatchData) => chat.userId === matchedUserId);
-        
-        if (inChattingWith) {
-          updatedChattingWith = userChattingWith.filter((chat: MatchData) => chat.userId !== matchedUserId);
-        }
-        
-        // Update current user
-        await updateDoc(userRef, {
-          matches: updatedMatches,
-          chattingWith: updatedChattingWith
-        });
-        
-        // Update matched user
-        const matchedUserRef = doc(db, 'users', matchedUserId);
-        const matchedUserDoc = await getDoc(matchedUserRef);
-        
-        if (matchedUserDoc.exists()) {
-          const matchedUserData = matchedUserDoc.data();
-          const matchedUserMatches = matchedUserData.matches || [];
-          const matchedUserChattingWith = matchedUserData.chattingWith || [];
-          
-          // Remove current user from matched user's data
-          const updatedMatchedUserMatches = matchedUserMatches.filter((match: MatchData) => match.userId !== user.uid);
-          const updatedMatchedUserChattingWith = matchedUserChattingWith.filter((chat: MatchData) => chat.userId !== user.uid);
-          
-          await updateDoc(matchedUserRef, {
-            matches: updatedMatchedUserMatches,
-            chattingWith: updatedMatchedUserChattingWith
-          });
-        }
-        
-        // Delete conversation if it exists
-        await deleteConversationBetweenUsers(user.uid, matchedUserId);
-        
-        // Update local state
-        setMatches(updatedMatches);
-        setChattingWith(updatedChattingWith);
-      
-      // Trigger haptic feedback
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    } catch (error) {
-      console.error('Error unmatching user:', error);
-      setError('Failed to unmatch user');
-      
-      // Trigger haptic feedback for error
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    }
-  }, [user]);
-  
-  const blockUser = useCallback(async (userIdToBlock: string) => {
-    if (!user) return;
-    
-    try {
-      // First unmatch the user (which also deletes conversations)
-      await unmatchUser(userIdToBlock);
-      
-      // Get user data for the blocked user to store in blockedUsers array
-      const blockedUserRef = doc(db, 'users', userIdToBlock);
-      const blockedUserDoc = await getDoc(blockedUserRef);
-      
-      if (blockedUserDoc.exists()) {
-        const blockedUserData = blockedUserDoc.data();
-        const blockedUserProfile = blockedUserData.profile || {};
-        
-        // Create a simplified version of user data for the blocked list
-        const blockedUserInfo: MatchData = {
-          userId: userIdToBlock,
-          displayName: blockedUserProfile.displayName || 'User',
-          profilePic: blockedUserProfile.profilePic || '',
-          matchLevel: 'match' as MatchLevel, // Type cast to MatchLevel
-          commonShowIds: [],
-          favoriteShowIds: [],
-          matchTimestamp: Timestamp.now()
-        };
-        
-        // Update current user's blocked list
-        const userRef = doc(db, 'users', user.uid);
-        await updateDoc(userRef, {
-          blockedUsers: arrayUnion(blockedUserInfo)
-        });
-        
-        // Update local state
-        setBlockedUsers(prev => [...prev, blockedUserInfo]);
-        
-        // Trigger haptic feedback
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    } catch (error) {
-      console.error('Error blocking user:', error);
-      setError('Failed to block user');
-      
-      // Trigger haptic feedback for error
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    }
-  }, [user, unmatchUser]);
-  
-  const unblockUser = useCallback(async (userIdToUnblock: string) => {
-    if (!user) return;
-    
-    try {
-      // Get current user's blocked list
-      const userRef = doc(db, 'users', user.uid);
-      const userDoc = await getDoc(userRef);
-      
-      if (userDoc.exists()) {
-        const userData = userDoc.data();
-        const userBlockedUsers = userData.blockedUsers || [];
-        
-        // Filter out the user to unblock
-        const updatedBlockedUsers = userBlockedUsers.filter((blockedUser: MatchData) => blockedUser.userId !== userIdToUnblock);
-        
-        // Update Firestore
-        await updateDoc(userRef, {
-          blockedUsers: updatedBlockedUsers
-        });
-        
-        // Update local state
-        setBlockedUsers(updatedBlockedUsers);
-        
-        // Trigger haptic feedback
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    } catch (error) {
-      console.error('Error unblocking user:', error);
-      setError('Failed to unblock user');
-      
-      // Trigger haptic feedback for error
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    }
-  }, [user]);
-  
-  // Helper function to delete conversation between two users
-  const deleteConversationBetweenUsers = useCallback(async (userA: string, userB: string) => {
-    try {
-      // Find conversation between these users
-      const conversationsRef = collection(db, 'conversations');
-      const q = query(
-        conversationsRef,
-        where('participants', 'array-contains', userA)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      let conversationId: string | null = null;
-      
-      querySnapshot.forEach((docSnapshot) => {
-        const data = docSnapshot.data();
-        if (data.participants && data.participants.includes(userB)) {
-          conversationId = docSnapshot.id;
-        }
+        return match;
       });
       
-      if (conversationId) {
-        // Delete message batches subcollection first
-        const batchesRef = collection(db, `conversations/${conversationId}/messageBatches`);
-        const batchesSnapshot = await getDocs(batchesRef);
-        
-        const batchPromises: Promise<void>[] = [];
-        batchesSnapshot.forEach((batchDoc) => {
-          batchPromises.push(deleteDoc(doc(db, `conversations/${conversationId}/messageBatches`, batchDoc.id)));
-        });
-        
-        await Promise.all(batchPromises);
-        
-        // Then delete the conversation document
-        await deleteDoc(doc(db, 'conversations', conversationId));
-        
-        return true;
-      }
+      batch.update(userRef, { matches: updatedUserMatches });
       
-      return false;
+      // Update matched user's match with current user
+      const matchedUserMatches = matchedUserDoc.data().matches || [];
+      const updatedMatchedUserMatches = matchedUserMatches.map((match: MatchData) => {
+        if (match.userId === user.uid) {
+          return {...match, chattingWith: true};
+        }
+        return match;
+      });
+      
+      batch.update(matchedUserRef, { matches: updatedMatchedUserMatches });
+      
+      // Commit the batch
+      await batch.commit();
+      
+      // Update local state - update the match in the state instead of filtering it out
+      setMatches(prev => prev.map(match => 
+        match.userId === matchedUserId 
+          ? { ...match, chattingWith: true } 
+          : match
+      ));
+      
+      return true;
     } catch (error) {
-      console.error('Error deleting conversation:', error);
+      console.error('Error updating chattingWith status:', error);
       return false;
     }
-  }, []);
+  }, [user]);
+  
+  const unmatchUser = useCallback(async (matchedUserId: string, isBlockAction: boolean = false) => {
+    if (!user) return;
+    
+    const userRef = doc(db, 'users', user.uid);
+    const matchedUserRef = doc(db, 'users', matchedUserId);
+    const cacheKey = `conversation_${user.uid}_${matchedUserId}`;
+    const otherUserCacheKey = `conversation_${matchedUserId}_${user.uid}`;
+
+    try {
+        // Clear cache immediately to prevent reuse of old ID
+        await AsyncStorage.removeItem(cacheKey);
+        await AsyncStorage.removeItem(otherUserCacheKey);
+        
+
+        // 1. Remove match entries from both users' profiles
+        const batch = writeBatch(db);
+
+      const userDoc = await getDoc(userRef);
+      if (userDoc.exists() && userDoc.data().matches) {
+        const userMatches = userDoc.data().matches || [];
+        const updatedMatches = userMatches.filter((match: MatchData) => match.userId !== matchedUserId);
+            batch.update(userRef, { matches: updatedMatches });
+      }
+      
+      const matchedUserDoc = await getDoc(matchedUserRef);
+      if (matchedUserDoc.exists() && matchedUserDoc.data().matches) {
+        const matchedUserMatches = matchedUserDoc.data().matches || [];
+        const updatedMatchedUserMatches = matchedUserMatches.filter((match: MatchData) => match.userId !== user.uid);
+            batch.update(matchedUserRef, { matches: updatedMatchedUserMatches });
+        }
+
+        await batch.commit();
+       
+
+        // 2. Update local state immediately
+        setMatches(prev => prev.filter(match => match.userId !== matchedUserId));
+
+        // 3. Call Cloud Function to delete conversation data (regardless of block action)
+        try {
+          console.log(`Calling deleteConversationData Cloud Function for otherUserId: ${matchedUserId}`);
+          const result = await callDeleteConversationData({ otherUserId: matchedUserId });
+          console.log("deleteConversationData result:", result.data);
+        } catch (cfError: any) {
+            console.error('Error calling deleteConversationData Cloud Function:', cfError);
+            setError(`Unmatch successful, but failed to cleanup conversation data fully: ${cfError.message || cfError}`);
+        }
+
+        // 4. Haptic feedback (only if not part of a block action, blockUser will handle its own)
+        if (!isBlockAction) {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+
+    } catch (error: any) {
+        console.error('Error in unmatchUser process:', error);
+        setError(`Failed to unmatch user: ${error.message || error}`);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        loadPersistedMatches(); // Reload matches on error
+        throw error; // Re-throw if needed by caller
+    }
+  }, [user, callDeleteConversationData, loadPersistedMatches]);
+  
+  const blockUser = useCallback(async (userIdToBlock: string) => {
+    if (!user || !userIdToBlock || blockedUsers.includes(userIdToBlock)) return; // Prevent self-block or re-blocking
+
+   
+    const userRef = doc(db, 'users', user.uid);
+
+    try {
+        // 1. Update Firestore profile.blockedUsers
+        await updateDoc(userRef, {
+            'profile.blockedUsers': arrayUnion(userIdToBlock)
+        });
+        
+
+        // 2. Update local state
+        setBlockedUsers(prev => [...prev, userIdToBlock]);
+
+        // 3. Trigger unmatch logic (which now also calls the cleanup CF)
+        await unmatchUser(userIdToBlock, true); // Pass true for isBlockAction
+     
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+    } catch (error: any) {
+        console.error(`Error blocking user ${userIdToBlock}:`, error);
+        setError(`Failed to block user: ${error.message || error}`);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+        // Attempt to rollback local state if Firestore update failed but local state changed
+        setBlockedUsers(prev => prev.filter(id => id !== userIdToBlock));
+    }
+  }, [user, unmatchUser, blockedUsers]);
+  
+  const unblockUser = useCallback(async (userIdToUnblock: string) => {
+      if (!user || !userIdToUnblock || !blockedUsers.includes(userIdToUnblock)) return; // Can't unblock if not blocked
+
+    
+      const userRef = doc(db, 'users', user.uid);
+
+      try {
+          // 1. Update Firestore profile.blockedUsers
+          await updateDoc(userRef, {
+              'profile.blockedUsers': arrayRemove(userIdToUnblock)
+          });
+         
+
+          // 2. Update local state
+          setBlockedUsers(prev => prev.filter(id => id !== userIdToUnblock));
+
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      } catch (error: any) {
+          console.error(`Error unblocking user ${userIdToUnblock}:`, error);
+          setError(`Failed to unblock user: ${error.message || error}`);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+          // Attempt to rollback local state if Firestore update failed but local state changed
+          setBlockedUsers(prev => [...prev, userIdToUnblock]); // Add back if it was removed locally
+      }
+  }, [user, blockedUsers]);
   
   const mergeMatches = useCallback((existingMatches: MatchData[], newMatches: MatchData[]): MatchData[] => {
     // Create a map of existing matches by userId for easy lookup
@@ -673,10 +578,9 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       setIsSearching(true);
       setError('');
       
-      // Update cooldown (if applicable)
-      await setCooldown();
+      // No need to call setCooldown here, searchMatches does it.
       
-      // Get user profile and favorites
+      // Get current user profile, favorites, and block list
       const userDocRef = doc(db, 'users', user.uid);
       const userDoc = await getDoc(userDocRef);
       
@@ -688,6 +592,8 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       
       const userData = userDoc.data();
       const userProfile = userData.profile;
+      const currentUserBlockedList = userProfile?.blockedUsers || []; // Get current user's block list
+      const existingMatches = userData.matches || [];
       
       // Exit if user profile is incomplete
       if (!userProfile || !userProfile.displayName || !userProfile.age || !userProfile.gender) {
@@ -695,13 +601,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         setIsSearching(false);
         return;
       }
-      
-      // Get user blocked list and chatting with list
-      const userBlockedList = userData.blockedUsers || [];
-      const userChattingWith = userData.chattingWith || [];
-      
-      // Get existing matches to avoid duplicates
-      const existingMatches = userData.matches || [];
       
       // Run the matching algorithm
       const showIds = (userFavorites.shows || []).map((id: string) => id);
@@ -712,91 +611,93 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         return;
       }
       
- 
-      
       // Fetch all show users in parallel
-      const showUserQueries = showIds.map((showId: string) => {
-        const showUserRef = doc(db, 'showUsers', showId);
-        return getDoc(showUserRef);
-      });
-      
+      const showUserQueries = showIds.map((showId: string) => getDoc(doc(db, 'showUsers', showId)));
       const showUserResults = await Promise.all(showUserQueries);
       
-      // Process results
-      const potentialUserMap = new Map();
-      
+      // Process results to find potential matches and their common show counts
+      const potentialUserMap = new Map<string, number>(); // Map<userId, commonShowCount>
       for (const showUserDoc of showUserResults) {
         if (showUserDoc.exists()) {
           const data = showUserDoc.data();
-          const users = data.users || [];
+          const userIds: string[] = data.users || []; // Simplified array of user IDs
           
-          for (const userEntry of users) {
+          for (const userId of userIds) {
             // Skip current user
-            if (userEntry.userId === user.uid) continue;
-            
-            // Skip users already matched or in chattingWith
-            if (areUsersMatched(existingMatches, userEntry.userId) || 
-                isUserChattingWith(userChattingWith, userEntry.userId)) continue;
-            
-            // Skip users in blocked list
-            if (isUserBlocked(userBlockedList, userEntry.userId)) continue;
+            if (userId === user.uid) continue;
+            // Skip users already matched
+            if (areUsersMatched(existingMatches, userId)) continue;
+            // Skip users blocked by the current user
+            if (currentUserBlockedList.includes(userId)) continue;
             
             // Count occurrences
-            if (potentialUserMap.has(userEntry.userId)) {
-              potentialUserMap.set(userEntry.userId, potentialUserMap.get(userEntry.userId) + 1);
-            } else {
-              potentialUserMap.set(userEntry.userId, 1);
-            }
+            potentialUserMap.set(userId, (potentialUserMap.get(userId) || 0) + 1);
           }
         }
       }
       
-      // Fetch user details for potential matches
-      const potentialUserIds = Array.from(potentialUserMap.keys());
-      const newMatchesData: MatchData[] = [];
+      // Filter potential matches based on common show threshold
+      const potentialUserIds = Array.from(potentialUserMap.keys())
+          .filter(userId => (potentialUserMap.get(userId) || 0) >= MATCH_THRESHOLD);
       
-      // Batch user data fetching
+      if (potentialUserIds.length === 0) {
+        
+        // Don't set error here, let searchMatches handle the final count
+        setIsSearching(false);
+        return;
+      }
+      
+      // Fetch user details for potential matches IN BATCHES (if many)
+      // For simplicity here, fetch all. Consider batching for > 10 users.
       const userDataPromises = potentialUserIds.map(userId => getDoc(doc(db, 'users', userId)));
       const userDataResults = await Promise.all(userDataPromises);
       
+      const newMatchesData: MatchData[] = [];
+      
       for (let i = 0; i < userDataResults.length; i++) {
-        const userDataDoc = userDataResults[i];
-        const userId = potentialUserIds[i];
+        const matchedUserDoc = userDataResults[i];
+        const matchedUserId = potentialUserIds[i];
         
-        if (userDataDoc.exists()) {
-          const matchUserData = userDataDoc.data();
+        if (matchedUserDoc.exists()) {
+          const matchUserData = matchedUserDoc.data();
           const matchUserProfile = matchUserData.profile;
-          const matchUserBlockedList = matchUserData.blockedUsers || [];
           
           // Skip if profile is incomplete
           if (!matchUserProfile || !matchUserProfile.displayName || !matchUserProfile.gender) continue;
           
-          // Skip if current user is in this user's block list
-          if (isUserBlocked(matchUserBlockedList, user.uid)) continue;
+          // **Crucial**: Check if the potential match has blocked the current user
+          const matchUserBlockedList = matchUserProfile.blockedUsers || [];
+          if (matchUserBlockedList.includes(user.uid)) {
+             
+              continue; // Skip this user
+          }
           
-          // Check match criteria (gender/location preferences, etc.)
+          // Check mutual match criteria (gender/location preferences, etc.)
           if (!checkMatchCriteria(userProfile, matchUserProfile)) continue;
           
-          // Find common shows
+          // Common shows already calculated via potentialUserMap count
+          const commonShowCount = potentialUserMap.get(matchedUserId) || 0;
+          
+          // Determine match level
+          let matchLevel: MatchLevel = commonShowCount >= SUPER_MATCH_THRESHOLD ? 'superMatch' : 'match';
+          
+          // Get actual common show IDs (needed for profile view)
           const matchUserFavorites = matchUserProfile.favoriteShows || [];
           const commonShowIds = showIds.filter((id: string) => matchUserFavorites.includes(id));
-          
-          if (commonShowIds.length >= MATCH_THRESHOLD) {
-            // Determine match level
-            let matchLevel: MatchLevel = commonShowIds.length >= SUPER_MATCH_THRESHOLD ? 'superMatch' : 'match';
             
             // Create match object for current user
             const matchData: MatchData = {
-              userId: userId,
+            userId: matchedUserId,
               displayName: matchUserProfile.displayName,
               age: matchUserProfile.age || '',
               gender: matchUserProfile.gender || '',
               location: matchUserProfile.location || '',
               profilePic: matchUserProfile.profilePic || '',
               commonShowIds: commonShowIds,
-              favoriteShowIds: matchUserFavorites,
+            favoriteShowIds: matchUserFavorites, // Store other user's favs
               matchLevel: matchLevel,
-              matchTimestamp: Timestamp.now()
+              matchTimestamp: Timestamp.now(),
+              chattingWith: false
             };
             
             // Create match object for the matched user
@@ -808,125 +709,95 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
               location: userProfile.location || '',
               profilePic: userProfile.profilePic || '',
               commonShowIds: commonShowIds,
-              favoriteShowIds: showIds,
+            favoriteShowIds: showIds, // Store current user's favs
               matchLevel: matchLevel,
-              matchTimestamp: Timestamp.now()
+              matchTimestamp: Timestamp.now(),
+              chattingWith: false
             };
             
-            newMatchesData.push(matchData);
-            
-            // Add match to both users
-            await addMatchToBothUsers(user.uid, userId, matchData, otherUserMatchData);
+          // Add match to both users in Firestore
+          const added = await addMatchToBothUsers(user.uid, matchedUserId, matchData, otherUserMatchData);
+          if (added) {
+              newMatchesData.push(matchData); // Add to local list only if DB update was likely successful
           }
         }
       }
       
       // Merge new matches with existing ones and update state
-      const updatedMatches = mergeMatches(existingMatches, newMatchesData);
+      // Important: Use functional update to ensure we have the latest state if findMatches runs quickly
+      setMatches(prevExistingMatches => mergeMatches(prevExistingMatches, newMatchesData));
       
-      // Update state with all matches
-      setMatches(updatedMatches);
-      
-      // If no matches were found
-      if (newMatchesData.length === 0 && existingMatches.length === 0) {
-        setError('No matches found. Try adding more shows to your favorites!');
-      }
-      
-    } catch (error) {
-      setError('An error occurred while finding matches.');
+      // Error/success message handled by searchMatches based on count
+    } catch (error: any) {
+      console.error("Error during findMatches:", error);
+      setError(`An error occurred while finding matches: ${error.message || error}`);
     } finally {
-      setIsSearching(false);
+      // setIsSearching(false); // searchMatches will handle this
     }
-  }, [user, userFavorites, areUsersMatched, isUserChattingWith, isUserBlocked, setCooldown, checkMatchCriteria, mergeMatches, addMatchToBothUsers]);
+  }, [
+      user,
+      userFavorites.shows, // Depends on favorite shows
+      areUsersMatched,
+      checkMatchCriteria,
+      mergeMatches,
+      addMatchToBothUsers,
+      // No need for setCooldown here, searchMatches handles it
+  ]);
   
   const searchMatches = useCallback(async () => {
     if (!user) return 0;
     
     setIsSearching(true);
+    setError(null); // Clear previous errors
+    const initialMatchCount = matches.length; // Capture count *before* any updates
     
     try {
-      // Get current match count to calculate new matches later
-      const initialMatchCount = matches.length;
-      
-      // Set cooldown first to ensure it's always updated
+      // Set cooldown immediately
       await setCooldown();
       
-      // Update showUsers collection for all favorite shows
+      // Update showUsers collection for all favorite shows (can happen in parallel with findMatches)
       const favoriteShowIds = userFavorites.shows || [];
+      const updateShowUsersPromises = favoriteShowIds.map(showId => updateShowUsers(showId));
       
-      // Update showUsers in parallel for better performance
-      await Promise.all(favoriteShowIds.map(showId => updateShowUsers(showId)));
-      
-      // Find matches
+      // Find matches (this will update the 'matches' state internally)
       await findMatches();
       
-      // Calculate new matches - make sure we're using the updated match count
-      const newMatchCount = matches.length - initialMatchCount;
+      // Wait for showUsers updates to complete (though not strictly necessary for result count)
+      await Promise.all(updateShowUsersPromises);
       
-      // Trigger haptic feedback for success
+      // Calculate new matches using the LATEST state
+      // Use a functional state update to get the most recent count
+      let finalMatchCount = 0;
+      setMatches(currentMatches => {
+          finalMatchCount = currentMatches.length;
+          return currentMatches; // Return unchanged state, just needed the latest count
+      });
+      
+      const newMatchCount = Math.max(0, finalMatchCount - initialMatchCount); // Ensure non-negative
+      
+      if (newMatchCount > 0) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+          // Maybe a different feedback if no new matches found? Or just success for completing search.
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); // Indicate search completion
+          setError("No new matches found this time."); // Set a soft error/info message
+      }
       
-      return newMatchCount > 0 ? newMatchCount : 0;
-    } catch (error) {
-      // Trigger haptic feedback for error
+      return newMatchCount; // Return the number of *new* matches found
+      
+    } catch (error: any) {
+        console.error("Error during searchMatches:", error);
+        setError(`Search failed: ${error.message || error}`);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      return 0;
+        return 0; // Return 0 on error
     } finally {
-      setIsSearching(false);
+        setIsSearching(false); // Ensure loading state is turned off
     }
-  }, [user, userFavorites, setCooldown, updateShowUsers, findMatches, matches.length]);
+  }, [user, userFavorites.shows, setCooldown, updateShowUsers, findMatches, matches.length]); // matches.length dependency is okay here
   
-  // Utility function to check if a match is less than 24 hours old
-  const isNewMatch = useCallback((matchTimestamp: any): boolean => {
-    if (!matchTimestamp) return false;
-    
-    try {
-      // Convert Firestore timestamp to Date if necessary
-      const matchDate = matchTimestamp.toDate ? 
-        matchTimestamp.toDate() : 
-        new Date(matchTimestamp);
-      
-      const now = new Date();
-      const timeDiff = now.getTime() - matchDate.getTime();
-      const hoursDiff = timeDiff / (1000 * 60 * 60);
-      
-      return hoursDiff < 24;
-    } catch (error) {
-      console.error('Error calculating match age:', error);
-      return false;
-    }
-  }, []);
-  
-  // Inside the MatchContextProvider, add this useEffect
-  useEffect(() => {
-    // Handle logout event
-    const handleLogout = () => {
-      // Reset all state
-      setMatches([]);
-      setChattingWith([]);
-      setBlockedUsers([]);
-      setCooldownEndTime(null);
-      setRemainingTimeString('');
-      setLastSearchTime(null);
-      setSearchCount(0);
-      setIsLoading(false);
-      setError(null);
-    };
-
-    // Listen for logout events
-    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
-
-    // Clean up
-    return () => {
-      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
-    };
-  }, []);
-  
-  // Memoize context value to prevent unnecessary re-renders
+  // Memoize context value
   const contextValue = useMemo(() => ({
     matches,
-    chattingWith,
-    blockedUsers,
     isSearching,
     cooldownEndTime,
     searchMatches,
@@ -938,31 +809,28 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
     formatTime,
     error,
     unmatchUser,
+    loadPersistedMatches,
+    updateChattingWithStatus,
     blockUser,
     unblockUser,
-    moveToChattingWith,
-    loadPersistedMatches,
-    isNewMatch
+    blockedUsers
   }), [
     matches, 
-    chattingWith,
-    blockedUsers,
     isSearching, 
-    cooldownEndTime, 
+    cooldownEndTime,
     searchMatches, 
     remainingTimeString, 
     lastSearchTime,
     isLoading,
     findMatches,
-  
     formatTime,
     error,
     unmatchUser,
+    loadPersistedMatches,
+    updateChattingWithStatus,
     blockUser,
     unblockUser,
-    moveToChattingWith,
-    loadPersistedMatches,
-    isNewMatch
+    blockedUsers
   ]);
   
   return (

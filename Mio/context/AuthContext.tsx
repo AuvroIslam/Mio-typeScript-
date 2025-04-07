@@ -12,11 +12,6 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebaseConfig';
 import { Loader } from '../components';
 
-// Event emitter for logout
-import { EventEmitter } from 'events';
-export const logoutEventEmitter = new EventEmitter();
-export const LOGOUT_EVENT = 'user_logout';
-
 interface User {
   uid: string;
   email: string | null;
@@ -130,6 +125,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           profileCompleted: false
         });
       } catch (firestoreError) {
+        console.error("Error creating user document:", firestoreError);
         // Even if Firestore fails, the user is still authenticated
         // This ensures they can at least use the app even if profile data isn't stored yet
       }
@@ -143,18 +139,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. First emit logout event so components can unsubscribe from Firestore listeners
-      logoutEventEmitter.emit(LOGOUT_EVENT);
-      
-      // 2. Wait longer to ensure ALL listeners have time to unsubscribe
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // 3. Now sign out
+      // Just sign out without any navigation
       await signOut(auth);
-      
-      // 4. Wait a moment for sign out to complete before returning
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
       return true; // Return success status
     } catch (error) {
       console.error("Logout error:", error);

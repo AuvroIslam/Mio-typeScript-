@@ -23,7 +23,7 @@ import { COLORS } from '../../constants/Colors';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 const MAX_BIO_LENGTH = 150;
 
 interface ProfileFormData {
@@ -141,7 +141,12 @@ export default function EditProfileScreen() {
   
   // Handle additional picture selection
   const handleSelectAdditionalPic = async (index: number) => {
-    if (additionalPics.length >= 3 && index >= additionalPics.length) {
+    // Only allow adding new photos, not editing existing ones
+    if (index < additionalPics.length) {
+      return; // Early return if trying to edit an existing photo
+    }
+    
+    if (additionalPics.length >= 3) {
       Alert.alert('Limit Reached', 'You can only add up to 3 additional pictures');
       return;
     }
@@ -155,17 +160,8 @@ export default function EditProfileScreen() {
       });
       
       if (!result.canceled && result.assets && result.assets[0].uri) {
-        // TODO: Upload image to cloud storage
-        // For now, we'll just set the local URI
-        const newPics = [...additionalPics];
-        
-        if (index < newPics.length) {
-          // Replace existing pic
-          newPics[index] = result.assets[0].uri;
-        } else {
-          // Add new pic
-          newPics.push(result.assets[0].uri);
-        }
+        // Add new pic
+        const newPics = [...additionalPics, result.assets[0].uri];
         
         setAdditionalPics(newPics);
         setProfileData(prev => ({
@@ -875,7 +871,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.darkMaroon,
   },
   optionButtonSelected: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.darkMaroon,
   },
   optionButtonText: {
     fontSize: 14,
@@ -908,10 +904,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     left: 8,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: COLORS.primary,
+    width: 20,
+    height: 20,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 76, 76, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 1,

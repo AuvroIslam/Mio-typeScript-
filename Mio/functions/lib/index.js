@@ -1,367 +1,354 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.manualArchive = exports.archiveOldMessages = void 0;
-const functions = require("firebase-functions");
-const admin = require("firebase-admin");
+exports.deleteConversationData = exports.manualArchiveMessages = exports.scheduleMessageArchiving = void 0;
+const functions = __importStar(require("firebase-functions"));
+const admin = __importStar(require("firebase-admin"));
+const fs = __importStar(require("fs"));
+const os = __importStar(require("os"));
+const path = __importStar(require("path"));
+const firestore_1 = require("firebase-admin/firestore"); // Import FieldValue
+// Initialize Firebase Admin
 admin.initializeApp();
-const db = admin.firestore();
-const storage = admin.storage();
-const bucket = storage.bucket();
-// Configuration
-const ARCHIVE_THRESHOLD = 20; // Archive when conversation has more than 50 messages
-const KEEP_RECENT = 10; // Keep 20 most recent messages in Firestore
+// Configuration constants (same as in client)
+const MESSAGE_BATCH_SIZE = 20; // Number of messages per batch
+const BATCHES_TO_KEEP = 3; // Keep this many recent batches in Firestore
+const ARCHIVE_THRESHOLD = BATCHES_TO_KEEP * MESSAGE_BATCH_SIZE; // When to archive
 /**
- * Scheduled function that runs daily to archive old messages from conversations
- * with more than ARCHIVE_THRESHOLD messages.
+ * Helper function to delete a Firestore collection in batches.
+ * @param {admin.firestore.CollectionReference} collectionRef Reference to the collection.
+ * @param {number} batchSize Size of batches to delete.
+ * @return {Promise<void>}
  */
-exports.archiveOldMessages = functions.pubsub
-    .schedule('every 24 hours')
+async function deleteCollection(collectionRef, batchSize = 50) {
+    const query = collectionRef.orderBy("__name__").limit(batchSize);
+    // Keep deleting batches until the collection is empty
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        const snapshot = await query.get();
+        if (snapshot.size === 0) {
+            break;
+        }
+        // Create a new batch write
+        const batch = admin.firestore().batch();
+        snapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+        // Log progress
+        functions.logger.info(`Deleted ${snapshot.size} documents from ${collectionRef.path}`);
+    }
+}
+/**
+ * Helper function to delete all files within a Firebase Storage folder.
+ * @param {string} folderPath Path to the folder in Storage.
+ * @return {Promise<void>}
+ */
+async function deleteStorageFolder(folderPath) {
+    const bucket = admin.storage().bucket();
+    try {
+        // List all files in the folder
+        const [files] = await bucket.getFiles({ prefix: folderPath });
+        if (files.length === 0) {
+            functions.logger.info(`No files found in Storage folder: ${folderPath}`);
+            return;
+        }
+        // Delete each file
+        const deletePromises = files.map((file) => file.delete());
+        await Promise.all(deletePromises);
+        functions.logger.info(`Deleted ${files.length} files from Storage folder: ${folderPath}`);
+    }
+    catch (error) {
+        // Log error but don't necessarily fail the whole function if storage cleanup fails
+        functions.logger.error(`Error deleting Storage folder ${folderPath}:`, error);
+    }
+}
+/**
+ * Scheduled function that runs daily to check which conversations need archiving
+ * This is more reliable than client-triggered archiving
+ */
+exports.scheduleMessageArchiving = functions.pubsub
+    .schedule("every 2 minutes") // Set to 2 mins for testing, change back later!
     .onRun(async () => {
     try {
-        const conversationsRef = db.collection('conversations');
-        const conversations = await conversationsRef.get();
-        for (const conversationDoc of conversations.docs) {
-            const conversationId = conversationDoc.id;
-            const messagesRef = db.collection(`conversations/${conversationId}/messages`);
-            // Check message count
-            const countSnapshot = await messagesRef
-                .count()
-                .get();
-            const messageCount = countSnapshot.data().count;
-            // Only archive if message count exceeds threshold
-            if (messageCount > ARCHIVE_THRESHOLD) {
-                console.log(`Archiving messages for conversation: ${conversationId} (${messageCount} messages)`);
-                // Get messages sorted by timestamp (oldest first)
-                const messagesToArchive = await messagesRef
-                    .orderBy('timestamp', 'asc')
-                    .limit(messageCount - KEEP_RECENT)
-                    .get();
-                if (messagesToArchive.empty) {
-                    console.log('No messages to archive');
-                    continue;
-                }
-                // Create batch of messages to archive
-                const archiveData = messagesToArchive.docs.map(doc => (Object.assign({ id: doc.id }, doc.data())));
-                // Generate a timestamp for the archive file
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const archivePath = `archives/${conversationId}/${timestamp}.json`;
-                // Upload to Storage
-                const file = bucket.file(archivePath);
-                await file.save(JSON.stringify(archiveData), {
-                    contentType: 'application/json',
-                    metadata: {
-                        conversationId,
-                        messageCount: archiveData.length,
-                        oldestMessageTime: archiveData[0].timestamp,
-                        newestMessageTime: archiveData[archiveData.length - 1].timestamp
-                    }
-                });
-                // Update conversation document with archive information
-                await conversationDoc.ref.update({
-                    archivedMessages: admin.firestore.FieldValue.increment(archiveData.length),
-                    archives: admin.firestore.FieldValue.arrayUnion({
-                        path: archivePath,
-                        count: archiveData.length,
-                        oldestTimestamp: archiveData[0].timestamp,
-                        newestTimestamp: archiveData[archiveData.length - 1].timestamp,
-                        createdAt: admin.firestore.FieldValue.serverTimestamp()
-                    })
-                });
-                // Delete archived messages from Firestore
-                const batch = db.batch();
-                messagesToArchive.docs.forEach(doc => {
-                    batch.delete(doc.ref);
-                });
-                await batch.commit();
-                console.log(`Archived ${archiveData.length} messages for conversation ${conversationId}`);
-            }
+        const db = admin.firestore();
+        // Get conversations that need archiving
+        const conversationsSnapshot = await db.collection("conversations")
+            .where("messageCount", ">=", ARCHIVE_THRESHOLD)
+            .get();
+        if (conversationsSnapshot.empty) {
+            functions.logger.info("No conversations need archiving");
+            return null;
         }
+        // Process each conversation
+        // Note: This could process many conversations in parallel.
+        // Consider using Promise.allSettled or batching if necessary at larger scale.
+        const promises = conversationsSnapshot.docs.map(async (doc) => {
+            const conversationId = doc.id;
+            // Check if conversationData indicates it's already being archived by another process
+            // (e.g., if manual trigger was used recently - requires adding the flag back)
+            // For simplicity now, we assume the schedule is the main driver or manual calls are rare.
+            await archiveOldMessageBatches(conversationId);
+        });
+        await Promise.all(promises);
+        functions.logger.info(`Scheduled archiving complete, processed ${conversationsSnapshot.size} conversations`);
         return null;
     }
     catch (error) {
-        console.error('Error in archiveOldMessages:', error);
+        functions.logger.error("Error in scheduled archiving:", error);
         return null;
     }
 });
 /**
- * HTTP function to manually trigger archiving for a specific conversation
+ * Archive old message batches to Firebase Storage
+ * @param {string} conversationId The conversation ID
+ * @return {Promise<object>} Promise with archive results
  */
-exports.manualArchive = functions.https.onCall(async (data, context) => {
-    // Check if user is authenticated
-    if (!context.auth) {
-        throw new functions.https.HttpsError('unauthenticated', 'The function must be called while authenticated.');
-    }
+async function archiveOldMessageBatches(conversationId) {
     try {
-        const { conversationId } = data;
-        if (!conversationId) {
-            throw new functions.https.HttpsError('invalid-argument', 'The function must be called with a conversationId.');
-        }
-        const conversationRef = db.doc(`conversations/${conversationId}`);
+        const db = admin.firestore();
+        // Get conversation document first to check if archiving is needed
+        const conversationRef = db.collection("conversations").doc(conversationId);
         const conversationDoc = await conversationRef.get();
         if (!conversationDoc.exists) {
-            throw new functions.https.HttpsError('not-found', 'The specified conversation does not exist.');
-        }
-        // Check if user is a participant in the conversation
-        const conversationData = conversationDoc.data();
-        if (!(conversationData === null || conversationData === void 0 ? void 0 : conversationData.participants.includes(context.auth.uid))) {
-            throw new functions.https.HttpsError('permission-denied', 'You do not have permission to archive this conversation.');
-        }
-        // NEW: Get the messageCount from the conversation document
-        const messageCount = conversationData.messageCount || 0;
-        console.log(`Total messages in conversation (from conversation doc): ${messageCount}`);
-        // Make sure we have enough messages to archive
-        if (messageCount <= KEEP_RECENT) {
-            console.log(`Not enough messages to archive. Have ${messageCount}, need more than ${KEEP_RECENT}`);
             return {
                 success: false,
-                message: `Not enough messages to archive. Have ${messageCount}, need more than ${KEEP_RECENT}`
+                error: "Conversation not found",
             };
         }
-        // Get the message batches sorted by time (oldest first)
+        const conversationData = conversationDoc.data();
+        if (!conversationData) {
+            return {
+                success: false,
+                error: "Conversation data is null",
+            };
+        }
+        const messageCount = conversationData.messageCount || 0;
+        // Skip if message count is below threshold
+        if (messageCount < ARCHIVE_THRESHOLD) {
+            return {
+                success: true,
+                error: "No need to archive yet",
+            };
+        }
+        functions.logger.info(`Archiving messages for conversation ${conversationId} with ${messageCount} messages`);
+        // Get all message batches for the conversation, ordered by endTime (oldest first)
         const batchesRef = db.collection(`conversations/${conversationId}/messageBatches`);
         const batchesSnapshot = await batchesRef
-            .orderBy('startTime', 'asc')
+            .orderBy("endTime", "asc")
             .get();
-        console.log(`Found ${batchesSnapshot.size} message batches`);
         if (batchesSnapshot.empty) {
             return {
                 success: false,
-                message: 'No message batches found'
+                error: "No message batches found",
             };
         }
-        // Extract all messages from all batches
-        let allMessages = [];
-        try {
-            batchesSnapshot.docs.forEach(batchDoc => {
-                var _a;
-                const batchData = batchDoc.data();
-                console.log(`Processing batch ${batchDoc.id}, messages count: ${((_a = batchData.messages) === null || _a === void 0 ? void 0 : _a.length) || 0}`);
-                if (batchData.messages && Array.isArray(batchData.messages)) {
-                    // Add batch ID and position index to each message for reference
-                    const messagesWithIds = batchData.messages.map((msg, index) => {
-                        var _a, _b, _c;
-                        // Create a deterministic ID if the message doesn't have one
-                        if (!msg.id) {
-                            // Use timestamp and index for more reliable tracking
-                            const timestampStr = ((_b = (_a = msg.timestamp) === null || _a === void 0 ? void 0 : _a.toMillis) === null || _b === void 0 ? void 0 : _b.call(_a)) ||
-                                (((_c = msg.timestamp) === null || _c === void 0 ? void 0 : _c.seconds) ? msg.timestamp.seconds * 1000 : Date.now());
-                            msg.id = `${batchDoc.id}_${timestampStr}_${index}`;
-                            console.log(`Generated deterministic ID for message: ${msg.id}`);
-                        }
-                        return Object.assign(Object.assign({}, msg), { batchId: batchDoc.id, 
-                            // Add position in the original array
-                            positionIndex: index });
-                    });
-                    allMessages = allMessages.concat(messagesWithIds);
-                }
-                else {
-                    console.log(`Batch ${batchDoc.id} has no messages array or invalid format`);
-                }
-            });
-            console.log(`Total messages extracted from batches: ${allMessages.length}`);
-        }
-        catch (error) {
-            console.error(`Error extracting messages from batches: ${error}`);
-            throw new functions.https.HttpsError('internal', `Error extracting messages from batches: ${error.message}`);
-        }
-        // Sort all messages by timestamp
-        try {
-            allMessages.sort((a, b) => {
-                // Safe timestamp handling with explicit fallback
-                let timeA = 0;
-                let timeB = 0;
-                try {
-                    if (a.timestamp && typeof a.timestamp.toMillis === 'function') {
-                        timeA = a.timestamp.toMillis();
-                    }
-                    else if (a.timestamp && typeof a.timestamp === 'object' && a.timestamp.seconds) {
-                        timeA = a.timestamp.seconds * 1000;
-                    }
-                    else if (typeof a.timestamp === 'number') {
-                        timeA = a.timestamp;
-                    }
-                    if (b.timestamp && typeof b.timestamp.toMillis === 'function') {
-                        timeB = b.timestamp.toMillis();
-                    }
-                    else if (b.timestamp && typeof b.timestamp === 'object' && b.timestamp.seconds) {
-                        timeB = b.timestamp.seconds * 1000;
-                    }
-                    else if (typeof b.timestamp === 'number') {
-                        timeB = b.timestamp;
-                    }
-                }
-                catch (sortError) {
-                    console.error(`Error handling timestamps for sorting: ${sortError}`);
-                }
-                return timeA - timeB;
-            });
-            console.log(`Successfully sorted ${allMessages.length} messages by timestamp`);
-        }
-        catch (sortError) {
-            console.error(`Error sorting messages: ${sortError}`);
-            console.error(`First few messages for debugging: ${JSON.stringify(allMessages.slice(0, 3))}`);
-            throw new functions.https.HttpsError('internal', `Error sorting messages: ${sortError.message}`);
-        }
-        // Keep only the oldest messages (leaving the KEEP_RECENT most recent)
-        const messagesToArchive = allMessages.slice(0, Math.max(0, allMessages.length - KEEP_RECENT));
-        console.log(`Messages to archive: ${messagesToArchive.length}`);
-        if (messagesToArchive.length === 0) {
+        // Calculate how many batches to keep vs. archive
+        const totalBatches = batchesSnapshot.docs.length;
+        const batchesToArchive = Math.max(0, totalBatches - BATCHES_TO_KEEP);
+        if (batchesToArchive <= 0) {
             return {
-                success: false,
-                message: 'No messages to archive after keeping recent ones'
+                success: true,
+                error: "Not enough batches to archive",
             };
         }
-        // Generate a timestamp for the archive file
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        functions.logger.info(`Will archive ${batchesToArchive} of ${totalBatches} batches`);
+        // Collect batches to archive
+        const archiveBatches = [];
+        const batchIds = [];
+        batchesSnapshot.docs.slice(0, batchesToArchive).forEach((doc) => {
+            const batchData = doc.data();
+            batchData.id = doc.id;
+            archiveBatches.push(batchData);
+            batchIds.push(doc.id);
+        });
+        // Create archive JSON
+        const totalMessagesInArchive = archiveBatches.reduce((count, batch) => count + batch.messages.length, 0);
+        const archiveData = {
+            conversationId,
+            batches: archiveBatches,
+            totalMessages: totalMessagesInArchive,
+            oldestTimestamp: archiveBatches[0].startTime,
+            newestTimestamp: archiveBatches[archiveBatches.length - 1].endTime,
+            archivedAt: new Date().toISOString(),
+        };
+        // Generate timestamp for the archive file name
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
         const archivePath = `archives/${conversationId}/${timestamp}.json`;
-        // Upload to Storage
-        const file = bucket.file(archivePath);
-        await file.save(JSON.stringify(messagesToArchive), {
-            contentType: 'application/json',
+        // Create a temp file first since Firebase storage needs a file
+        const tempLocalFile = path.join(os.tmpdir(), `archive-${timestamp}.json`);
+        fs.writeFileSync(tempLocalFile, JSON.stringify(archiveData));
+        // Upload to Firebase Storage
+        const bucket = admin.storage().bucket();
+        await bucket.upload(tempLocalFile, {
+            destination: archivePath,
             metadata: {
-                conversationId,
-                messageCount: messagesToArchive.length,
-                oldestMessageTime: messagesToArchive[0].timestamp,
-                newestMessageTime: messagesToArchive[messagesToArchive.length - 1].timestamp
-            }
+                contentType: "application/json",
+            },
         });
-        console.log(`Successfully uploaded archive to ${archivePath}`);
-        // Update conversation document with archive information
-        await conversationRef.update({
-            archivedMessages: admin.firestore.FieldValue.increment(messagesToArchive.length),
-            archives: admin.firestore.FieldValue.arrayUnion({
-                path: archivePath,
-                count: messagesToArchive.length,
-                oldestTimestamp: messagesToArchive[0].timestamp,
-                newestTimestamp: messagesToArchive[messagesToArchive.length - 1].timestamp,
-                createdAt: new Date() // Using regular Date instead of serverTimestamp
-            })
-        });
-        // Define constants and variables for batch operations
-        const MAX_BATCH_OPERATIONS = 400; // Firestore limit is 500, use 400 to be safe
-        const batch = db.batch();
-        let operationCount = 0;
-        // IMPROVED APPROACH: Process each batch
-        try {
-            // Get the most recent messages to keep (these won't be deleted)
-            const messagesToKeep = allMessages.slice(Math.max(0, allMessages.length - KEEP_RECENT));
-            console.log(`Keeping ${messagesToKeep.length} most recent messages`);
-            // Create a new batch that will contain only the most recent messages
-            if (messagesToKeep.length > 0) {
-                // Group messages to keep by batch ID
-                const keepMessagesByBatch = {};
-                messagesToKeep.forEach(msg => {
-                    const batchId = msg.batchId;
-                    if (!keepMessagesByBatch[batchId]) {
-                        keepMessagesByBatch[batchId] = [];
-                    }
-                    // Store a clean version without our added tracking fields
-                    const cleanMsg = Object.assign({}, msg);
-                    delete cleanMsg.batchId;
-                    delete cleanMsg.positionIndex;
-                    keepMessagesByBatch[batchId].push(cleanMsg);
-                });
-                // Delete ALL existing message batches
-                for (const batchDoc of batchesSnapshot.docs) {
-                    console.log(`Deleting batch ${batchDoc.id}`);
-                    batch.delete(batchDoc.ref);
-                    operationCount++;
-                    // Commit if we're approaching limits
-                    if (operationCount >= MAX_BATCH_OPERATIONS) {
-                        console.log(`Committing intermediate batch with ${operationCount} operations`);
-                        await batch.commit();
-                        operationCount = 0;
-                    }
-                }
-                // Create new batches for the messages to keep
-                for (const batchId in keepMessagesByBatch) {
-                    const messages = keepMessagesByBatch[batchId];
-                    if (messages.length > 0) {
-                        console.log(`Creating new batch with ${messages.length} messages to keep`);
-                        // Create a new batch doc with a new ID
-                        const newBatchRef = db.collection(`conversations/${conversationId}/messageBatches`).doc();
-                        // Get the timestamps for startTime and endTime
-                        let startTimestamp, endTimestamp;
-                        try {
-                            startTimestamp = messages[0].timestamp;
-                            endTimestamp = messages[messages.length - 1].timestamp;
-                        }
-                        catch (e) {
-                            console.log(`Error getting timestamps: ${e}`);
-                            startTimestamp = admin.firestore.Timestamp.now();
-                            endTimestamp = admin.firestore.Timestamp.now();
-                        }
-                        batch.set(newBatchRef, {
-                            messages: messages,
-                            startTime: startTimestamp,
-                            endTime: endTimestamp
-                        });
-                        operationCount++;
-                        // If this is the newest batch, update the conversation's currentBatchId
-                        if (batchId === batchesSnapshot.docs[batchesSnapshot.docs.length - 1].id) {
-                            console.log(`Setting ${newBatchRef.id} as the current batch ID`);
-                            batch.update(conversationRef, {
-                                currentBatchId: newBatchRef.id
-                            });
-                            operationCount++;
-                        }
-                        // Commit if we're approaching limits
-                        if (operationCount >= MAX_BATCH_OPERATIONS) {
-                            console.log(`Committing intermediate batch with ${operationCount} operations`);
-                            await batch.commit();
-                            operationCount = 0;
-                        }
-                    }
-                }
-            }
-            else {
-                // If we're keeping no messages, just delete all batches
-                for (const batchDoc of batchesSnapshot.docs) {
-                    console.log(`Deleting batch ${batchDoc.id} (keeping no messages)`);
-                    batch.delete(batchDoc.ref);
-                    operationCount++;
-                    // Commit if we're approaching limits
-                    if (operationCount >= MAX_BATCH_OPERATIONS) {
-                        console.log(`Committing intermediate batch with ${operationCount} operations`);
-                        await batch.commit();
-                        operationCount = 0;
-                    }
-                }
-            }
-            // Update the message count in the conversation
-            batch.update(conversationRef, {
-                messageCount: KEEP_RECENT // Set the exact count of messages we're keeping
+        // Clean up temp file
+        fs.unlinkSync(tempLocalFile);
+        functions.logger.info(`Uploaded archive to ${archivePath}`);
+        // Update conversation document with archive info
+        const archiveMetadata = {
+            path: archivePath,
+            count: archiveData.totalMessages,
+            oldestTimestamp: archiveData.oldestTimestamp,
+            newestTimestamp: archiveData.newestTimestamp,
+            createdAt: new Date(),
+        };
+        // Use a transaction to update the conversation and delete batches
+        await db.runTransaction(async (transaction) => {
+            // Update conversation document with archive metadata
+            transaction.update(conversationRef, {
+                archivedMessages: firestore_1.FieldValue.increment(archiveData.totalMessages),
+                archives: firestore_1.FieldValue.arrayUnion(archiveMetadata),
             });
-            operationCount++;
-            if (operationCount > 0) {
-                console.log(`Committing final batch with ${operationCount} operations`);
-                await batch.commit();
+            // Delete archived batches from Firestore
+            for (const batchId of batchIds) {
+                const batchRef = db
+                    .collection(`conversations/${conversationId}/messageBatches`)
+                    .doc(batchId);
+                transaction.delete(batchRef);
             }
-            console.log(`Successfully committed batch updates`);
-        }
-        catch (error) {
-            console.error(`Error updating message batches (detailed): ${JSON.stringify(error)}`);
-            console.error(`Error stack: ${error.stack}`);
-            throw new functions.https.HttpsError('internal', `Error updating message batches: ${error.message}`);
-        }
+        });
+        functions.logger.info(`Successfully archived ${totalMessagesInArchive} messages ` +
+            `from conversation ${conversationId}`);
         return {
             success: true,
-            archivedCount: allMessages.length - KEEP_RECENT,
-            archivePath
+            archivePath,
+            archivedBatchIds: batchIds,
         };
     }
     catch (error) {
-        console.error(`Error in manualArchive (detailed): ${JSON.stringify(error)}`);
-        console.error(`Error stack: ${error.stack}`);
-        // Return a more specific error message to the client
-        let errorMessage = 'An error occurred while archiving messages.';
-        if (error.message) {
-            errorMessage = `Error: ${error.message}`;
+        functions.logger.error(`Error archiving messages for conversation ${conversationId}:`, error);
+        return {
+            success: false,
+            error: `Failed to archive messages: ${error}`,
+        };
+    }
+}
+/**
+ * HTTP function to manually trigger archiving for a specific conversation
+ * This can be called from admin tools if needed
+ */
+exports.manualArchiveMessages = functions.https.onCall(async (data, context) => {
+    // Check if the request is made by an authenticated user
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    }
+    const conversationId = data.conversationId;
+    if (!conversationId) {
+        throw new functions.https.HttpsError("invalid-argument", "The function requires a conversationId parameter.");
+    }
+    try {
+        const result = await archiveOldMessageBatches(conversationId);
+        return result;
+    }
+    catch (error) {
+        throw new functions.https.HttpsError("internal", `Error archiving messages: ${error}`);
+    }
+});
+/**
+ * Internal helper to perform the actual deletion steps for a conversation.
+ * Assumes conversationRef is valid.
+ * @param {string} conversationId The ID of the conversation.
+ * @param {admin.firestore.DocumentReference} conversationRef Reference to the conversation document.
+ * @return {Promise<void>}
+ */
+async function performConversationDeletion(conversationId, conversationRef) {
+    // Delete messageBatches subcollection
+    const batchesRef = conversationRef.collection("messageBatches");
+    await deleteCollection(batchesRef); // Use helper function
+    functions.logger.info(`Deleted messageBatches subcollection for conversation ${conversationId}`);
+    // Delete Storage archives folder
+    const storageFolderPath = `archives/${conversationId}/`;
+    await deleteStorageFolder(storageFolderPath); // Use helper function
+    functions.logger.info(`Deleted Storage folder ${storageFolderPath}`);
+    // Delete the main conversation document
+    await conversationRef.delete();
+    functions.logger.info(`Deleted main conversation document ${conversationId}`);
+}
+/**
+ * HTTPS Callable function to delete all data associated with a conversation.
+ * Called when a user unmatches or blocks another user.
+ */
+exports.deleteConversationData = functions.https.onCall(async (data, context) => {
+    // 1. Authentication Check
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    }
+    const currentUserId = context.auth.uid;
+    const otherUserId = data.otherUserId;
+    if (!otherUserId || typeof otherUserId !== "string") {
+        throw new functions.https.HttpsError("invalid-argument", "The function requires an 'otherUserId' parameter (string).");
+    }
+    const db = admin.firestore();
+    try {
+        // 2. Find the conversation document
+        const conversationsRef = db.collection("conversations");
+        const q = conversationsRef
+            .where("participants", "array-contains", currentUserId);
+        const querySnapshot = await q.get();
+        let conversationId = null;
+        let conversationRef = null;
+        querySnapshot.forEach((doc) => {
+            const participants = doc.data().participants;
+            if (participants && participants.includes(otherUserId)) {
+                conversationId = doc.id;
+                conversationRef = doc.ref;
+            }
+        });
+        // 3. If conversation exists, proceed with deletion
+        if (conversationId && conversationRef) {
+            // Split the log message into two parts
+            functions.logger.info(`Found conversation ${conversationId} between ${currentUserId} and ${otherUserId}.`);
+            functions.logger.info("Preparing for deletion.");
+            // Call the dedicated deletion helper function
+            await performConversationDeletion(conversationId, conversationRef);
+            return {
+                success: true,
+                message: `Successfully deleted conversation data for ${conversationId}`,
+            };
         }
-        if (error.code && error.code.includes('permission-denied')) {
-            errorMessage = 'Permission denied: You may not have access to the storage bucket.';
+        else {
+            functions.logger.info(`No conversation found between ${currentUserId} and ${otherUserId}. ` +
+                "No data deleted.");
+            // It's okay if no conversation exists, maybe they unmatched before chatting
+            return {
+                success: true,
+                message: "No active conversation found to delete.",
+            };
         }
-        throw new functions.https.HttpsError('internal', errorMessage);
+    }
+    catch (error) {
+        // Break the logger call to satisfy max-len
+        functions.logger.error(`Error deleting conversation data between ${currentUserId} and ${otherUserId}:`, error);
+        // Check if error is an object with a message property before accessing it
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new functions.https.HttpsError("internal", `Failed to delete conversation data: ${errorMessage}`);
     }
 });
 //# sourceMappingURL=index.js.map

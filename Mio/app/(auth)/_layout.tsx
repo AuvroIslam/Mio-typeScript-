@@ -12,7 +12,7 @@ const AuthLayout = () => {
         <Stack 
           screenOptions={{
             headerShown: false,
-            contentStyle: { backgroundColor: '#FFCCE1' },
+            contentStyle: { backgroundColor: '#ffffff' },
           }} 
         />
         <Toast config={toastConfig} />

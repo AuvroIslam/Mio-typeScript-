@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -9,20 +9,21 @@ import {
   ActivityIndicator,
   Platform,
   Dimensions,
-  StatusBar
+  StatusBar,
+  Alert
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '../../constants/Colors';
-import { doc, getDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
-import { MatchLevel, useMatch } from '../../context/MatchContext';
+import { MatchLevel } from '../../context/MatchContext';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { logoutEventEmitter, LOGOUT_EVENT } from '../../context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
+const API_BASE_URL = "https://api.themoviedb.org/3";
 
 interface ProfileData {
   displayName: string;
@@ -61,14 +62,18 @@ export default function UserProfileScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Use the shared isNewMatch function from context
-  const { isNewMatch } = useMatch();
+  // Check if match is less than 24 hours old
+  const isNewMatch = () => {
+    if (!matchTimestamp) return false;
+    
+    const now = new Date();
+    const timeDiff = now.getTime() - matchTimestamp.getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    return hoursDiff < 24;
+  };
   
-  // Convert matchTimestamp to Firestore Timestamp format if needed
-  const firestoreTimestamp = matchTimestamp ? Timestamp.fromDate(matchTimestamp) : null;
-  
-  // Check if images should be blurred
-  const shouldBlurImages = isNewMatch(firestoreTimestamp);
+  const shouldBlurImages = isNewMatch();
   
   useEffect(() => {
     if (userId) {
@@ -76,24 +81,6 @@ export default function UserProfileScreen() {
       fetchAllShows();
     }
   }, [userId]);
-  
-  useEffect(() => {
-    const handleLogout = () => {
-      // Clean up state on logout
-      setProfile(null);
-      setAllShows([]);
-      setIsLoading(false);
-      setError(null);
-    };
-
-    // Listen for logout events
-    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
-
-    // Clean up
-    return () => {
-      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
-    };
-  }, []);
   
   const fetchUserProfile = async () => {
     try {
@@ -116,12 +103,20 @@ export default function UserProfileScreen() {
     if (!favoriteShowIds.length) return;
     
     try {
-      const TMDB_API_KEY = 'b2b68cd65cf02c8da091b2857084bd4d'; 
+      const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
+
+      if (!TMDB_API_KEY) {
+        console.error("TMDB API Key is not defined!");
+        Alert.alert("Configuration Error", "TMDB API Key is missing. Cannot fetch show details.");
+        setIsLoading(false);
+        return;
+      }
+
       const shows: CommonShow[] = [];
       
       for (const showId of favoriteShowIds) {
         const response = await fetch(
-          `https://api.themoviedb.org/3/tv/${showId}?api_key=${TMDB_API_KEY}&language=en-US`
+          `${API_BASE_URL}/tv/${showId}?api_key=${TMDB_API_KEY}&language=en-US`
         );
         
         if (response.ok) {
@@ -145,6 +140,8 @@ export default function UserProfileScreen() {
       setAllShows(shows);
     } catch (error) {
       console.error('Error fetching shows:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
   
@@ -205,11 +202,20 @@ export default function UserProfileScreen() {
       <ScrollView style={styles.scrollView}>
         {/* Header with profile image */}
         <View style={styles.headerContainer}>
-          <Image 
-            source={{ uri: profile.profilePic }} 
-            style={styles.profileImage}
-            blurRadius={shouldBlurImages ? 40 : 0}
-          />
+          {shouldBlurImages ? (
+            <View style={styles.blurImageContainer}>
+              <Image 
+                source={{ uri: profile.profilePic }}
+                style={[styles.profileImage, ]}
+                blurRadius={40}
+              />
+            </View>
+          ) : (
+            <Image 
+              source={{ uri: profile.profilePic }} 
+              style={styles.profileImage} 
+            />
+          )}
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.8)']}
             style={styles.profileGradient}
@@ -418,11 +424,20 @@ export default function UserProfileScreen() {
               >
                 {profile.additionalPics.map((photo, index) => (
                   <View key={index} style={styles.photoWrapper}>
-                    <Image 
-                      source={{ uri: photo }} 
-                      style={styles.additionalPhoto}
-                      blurRadius={shouldBlurImages ? 40 : 0}
-                    />
+                    {shouldBlurImages ? (
+                      <View style={styles.photoBlurContainer}>
+                        <Image 
+                          source={{ uri: photo }}
+                          style={styles.additionalPhoto}
+                          blurRadius={40}
+                        />
+                      </View>
+                    ) : (
+                      <Image 
+                        source={{ uri: photo }} 
+                        style={styles.additionalPhoto}
+                      />
+                    )}
                   </View>
                 ))}
               </ScrollView>
@@ -507,8 +522,8 @@ const styles = StyleSheet.create({
   matchBadgeContainer: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 50 : 40,
-    right: 20,
-    alignItems: 'flex-end',
+    right: 10,
+    alignItems: 'center',
   },
   matchBadge: {
     flexDirection: 'row',
@@ -517,6 +532,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 16,
     backgroundColor: COLORS.secondary,
+    marginLeft: 25,
   },
   superMatchBadge: {
     backgroundColor: COLORS.secondary,
@@ -538,8 +554,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     fontSize: 12,
-    textAlign: 'right',
-    alignSelf: 'flex-end',
   },
   profileHeader: {
     position: 'absolute',
@@ -627,7 +641,7 @@ const styles = StyleSheet.create({
   },
   infoValue: {
     fontSize: 16,
-    color: COLORS.maroon,
+    color: COLORS.darkestMaroon,
     fontWeight: '500',
   },
   commonShowsContainer: {
@@ -661,7 +675,7 @@ const styles = StyleSheet.create({
   showTypeBadgeText: {
     fontSize: 10,
     fontWeight: 'bold',
-    color: COLORS.secondary,
+    color: COLORS.text.primary,
   },
   mutualBadge: {
     position: 'absolute',
@@ -730,7 +744,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 3,
     elevation: 5,
-    zIndex: 10,
   },
   chatButtonText: {
     color: '#FFF',
@@ -747,7 +760,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     overflow: 'hidden',
-    backgroundColor: 'transparent',
   },
   photosContainer: {
     paddingVertical: 12,
@@ -757,12 +769,26 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     borderRadius: 12,
     overflow: 'hidden',
-    width: width * 0.4,
-    height: width * 0.4,
-    backgroundColor: 'transparent',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  photoBlurContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 12,
   },
   additionalPhoto: {
-    width: '100%',
-    height: '100%',
+    width: width * 0.4,
+    height: width * 0.4,
+    borderRadius: 12,
   },
 }); 

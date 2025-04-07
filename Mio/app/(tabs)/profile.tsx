@@ -1,8 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
-  SafeAreaView as RNSafeAreaView, 
   StyleSheet, 
   Image, 
   ScrollView, 
@@ -19,19 +18,18 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
-import { doc, getDoc, updateDoc, arrayRemove, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
-import ParallaxScrollView from '../../components/ParallaxScrollView';
 import { COLORS } from '../../constants/Colors';
 import { router } from 'expo-router';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 
 import icon from '../../assets/images/icon.png';
 import { useFavorites } from '../../context/FavoritesContext';
 
 const { width, height } = Dimensions.get('window');
-const PROFILE_IMAGE_SIZE = width * 0.35;
+
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5;
 const COOLDOWN_MINUTES = 5;
@@ -149,9 +147,9 @@ export default function ProfileScreen() {
     cooldownTimer, 
     removalCount, 
     confirmRemoveFromFavorites,
-    getRemainingRemovals,
+    
     getTotalFavorites,
-    refreshUserFavorites
+    
   } = useFavorites();
   
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -170,7 +168,7 @@ export default function ProfileScreen() {
     remainingRemovals: MAX_WEEKLY_REMOVALS
   });
   const [forceUpdate, setForceUpdate] = useState(0);
-  const insets = useSafeAreaInsets();
+ 
 
 
 
@@ -215,12 +213,21 @@ export default function ProfileScreen() {
 
   // Fetch show details from TMDB using context favorites
   const fetchShowDetails = async () => {
-    const TMDB_API_KEY = 'b2b68cd65cf02c8da091b2857084bd4d';
+    const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
     let shows: {[key: string]: ShowItem} = {};
     
     try {
+      // Check if the key is defined
+      if (!TMDB_API_KEY) {
+        console.error("TMDB API Key is not defined in environment variables!");
+        setFeedbackModal({
+          visible: true,
+          message: 'TMDB API Key is missing. Cannot fetch show details.',
+          type: 'error'
+        });
+        return; // Exit if key is missing
+      }
 
-      
       // Fetch show details
       if (userFavorites.shows && userFavorites.shows.length > 0) {
         await Promise.all(userFavorites.shows.map(async (id) => {

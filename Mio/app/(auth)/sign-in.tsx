@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  KeyboardAvoidingView, 
-  Platform,
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    KeyboardAvoidingView,
+    Platform,
     ScrollView,
     Modal,
     TextInput,
     ImageBackground,
-    ActivityIndicator // Keep ActivityIndicator if used elsewhere, not needed for this specific change
+    // Keep ActivityIndicator if used elsewhere, not needed for this specific change
 } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,16 +20,15 @@ import { useAuth } from '../../context/AuthContext';
 // Keep Toast for other messages if needed, but we won't use it for login failure here
 import Toast from 'react-native-toast-message';
 import { COLORS } from '../../constants/Colors';
-import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+
 
 const SignIn = () => {
-  const router = useRouter();
+    const router = useRouter();
     // Destructure isLoading correctly from useAuth if it's provided for general loading
     const { signIn, isLoading: authContextLoading, user, resetPassword } = useAuth();
-  
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
     const [validationErrors, setValidationErrors] = useState({ email: '', password: '' });
     // --- New State for Login Error ---
     const [signInError, setSignInError] = useState<string | null>(null);
@@ -42,67 +41,45 @@ const SignIn = () => {
     const [processingReset, setProcessingReset] = useState(false);
 
     // --- Effect for redirecting logged-in user (keep as is) ---
-  useEffect(() => {
-    if (user) {
-      const timer = setTimeout(() => {
+    useEffect(() => {
+        if (user) {
+            const timer = setTimeout(() => {
                 if (!user.emailVerified) {
                     router.replace("/(auth)/email-verification");
                 } else if (user.hasProfile) {
-        router.replace("/(tabs)/home");
+                    router.replace("/(tabs)/home");
                 } else {
                     router.replace("/(registration)/registration");
                 }
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [user, router]);
+            }, 0);
+            return () => clearTimeout(timer);
+        }
+    }, [user, router]);
 
     // --- Clear sign-in error when inputs change ---
     useEffect(() => {
        if (signInError) {
            setSignInError(null);
        }
-    }, [email, password]);
+    }, [email, password, signInError]);
 
-    // Make sure we stay on the sign-in page when there's an error
-    useEffect(() => {
-        if (signInError) {
-            // If there's an error, stay on the sign-in page
-            const preventRedirect = () => {
-                if (router.canGoBack()) {
-                    // If user tries to navigate away with errors present, force back to sign-in
-                    router.replace('/sign-in');
-                }
-            };
-            
-            preventRedirect();
-            
-            // Block any navigation attempts for a short period to ensure we stay on sign-in page
-            const blockTimer = setTimeout(() => {
-                router.replace('/sign-in');
-            }, 250);
-            
-            return () => clearTimeout(blockTimer);
-        }
-    }, [signInError, router]);
-
-  const validateForm = () => {
-    let valid = true;
-    const newErrors = { email: '', password: '' };
+    const validateForm = () => {
+        let valid = true;
+        const newErrors = { email: '', password: '' };
         setSignInError(null); // Clear previous login errors on new attempt
 
-    if (!email) {
-      newErrors.email = 'Email is required';
-      valid = false;
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Email is invalid';
-      valid = false;
-    }
+        if (!email) {
+            newErrors.email = 'Email is required';
+            valid = false;
+        } else if (!/\S+@\S+\.\S+/.test(email)) {
+            newErrors.email = 'Email is invalid';
+            valid = false;
+        }
 
-    if (!password) {
-      newErrors.password = 'Password is required';
-      valid = false;
-    }
+        if (!password) {
+            newErrors.password = 'Password is required';
+            valid = false;
+        }
         // Keep password length validation if desired
         // else if (password.length < 6) {
         //   newErrors.password = 'Password must be at least 6 characters';
@@ -110,32 +87,32 @@ const SignIn = () => {
         // }
 
         setValidationErrors(newErrors);
-    return valid;
-  };
+        return valid;
+    };
 
-  const handleSignIn = async () => {
-    if (!validateForm()) {
+    const handleSignIn = async () => {
+        if (!validateForm()) {
              // Show validation errors inline (already handled by InputField `error` prop)
              // Optionally, focus the first invalid field
-      return;
-    }
-    
+            return;
+        }
+
         setIsProcessingSignIn(true);
         setSignInError(null); // Clear previous errors
 
-    try {
+        try {
            
-      await signIn(email, password);
+            await signIn(email, password);
             
             // Success: Navigation is handled by the useEffect hook watching the `user` state
             // You could show a success toast here if you still want one for successful login
-      Toast.show({
-        type: 'success',
-        text1: 'Welcome back!',
-        position: 'bottom',
-        visibilityTime: 2000
-      });
-    } catch (error: any) {
+            Toast.show({
+                type: 'success',
+                text1: 'Welcome back!',
+                position: 'bottom',
+                visibilityTime: 2000
+            });
+        } catch (error: any) {
             console.error("Sign In Failed:", error); // Log the actual error
             
             // IMPORTANT: Clear password for better security
@@ -147,9 +124,9 @@ const SignIn = () => {
             // Set specific error message based on error code
             if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
                 errorMessage = 'Invalid email or password. Please try again.';
-      } else if (error.code === 'auth/too-many-requests') {
+            } else if (error.code === 'auth/too-many-requests') {
                 errorMessage = 'Too many attempts. Please try again later.';
-      } else if (error.code === 'auth/network-request-failed') {
+            } else if (error.code === 'auth/network-request-failed') {
                 errorMessage = 'Network error. Check connection and try again.';
             } else if (error.code === 'auth/invalid-email') {
                 errorMessage = 'The email format is invalid.';
@@ -161,9 +138,9 @@ const SignIn = () => {
             // Show a very visible toast notification
             // Using setTimeout to ensure it shows even if navigation attempts happen
             setTimeout(() => {
-        Toast.show({
-          type: 'error',
-          text1: 'Sign In Failed',
+                Toast.show({
+                    type: 'error',
+                    text1: 'Sign In Failed',
                     text2: errorMessage,
                     position: 'top', // Position at top for better visibility
                     visibilityTime: 5000, // Show for longer
@@ -175,10 +152,8 @@ const SignIn = () => {
                         },
                     }
                 });
-            }, 500);
+            }, 100); // Reduced delay slightly
             
-            // Force navigation to stay on sign-in page
-            router.replace('/sign-in');
         } finally {
              // Important: Set processing to false regardless of success or failure
              setIsProcessingSignIn(false);
@@ -217,56 +192,54 @@ const SignIn = () => {
                 type: 'error',
                 text1: 'Password Reset Failed',
                 text2: errorMessage,
-          position: 'bottom',
-          visibilityTime: 4000
-        });
+                position: 'bottom',
+                visibilityTime: 4000
+            });
         } finally {
             setProcessingReset(false);
-    }
-  };
+        }
+    };
 
     // Use the specific processing state for the loader
     if (authContextLoading) {
        // Use a full-screen loader if the context is initially loading the user
-    return <Loader isLoading={true} />;
-  }
+       return <Loader isLoading={true} />;
+    }
 
-  return (
+    return (
         <ImageBackground 
             source={require('../../assets/images/signinBackground.jpg')}
             style={styles.backgroundImage}
         >
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-        <ScrollView contentContainerStyle={styles.scrollView}>
-          <View style={styles.logoContainer}>
-                            
-          </View>
+            <SafeAreaView style={styles.container}>
+                <KeyboardAvoidingView
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                    style={{ flex: 1 }}
+                >
+                    <ScrollView contentContainerStyle={styles.scrollView}>
+                        
 
-          <View style={styles.formContainer}>
-            <Text style={styles.title}>Welcome Back</Text>
-            <Text style={styles.subtitle}>Sign in to continue</Text>
+                        <View style={styles.formContainer}>
+                            <Text style={styles.title}>Welcome Back</Text>
+                            <Text style={styles.subtitle}>Sign in to continue</Text>
 
-            <InputField
-              label="Email"
-              value={email}
+                            <InputField
+                                label="Email"
+                                value={email}
                                 // Clear specific sign-in error when typing
                                 onChangeText={(text) => {setEmail(text); setSignInError(null);}}
-              placeholder="Enter your email"
-              keyboardType="email-address"
+                                placeholder="Enter your email"
+                                keyboardType="email-address"
                                 error={validationErrors.email} // Show validation errors
-            />
+                            />
 
-            <InputField
-              label="Password"
-              value={password}
+                            <InputField
+                                label="Password"
+                                value={password}
                                 // Clear specific sign-in error when typing
                                 onChangeText={(text) => {setPassword(text); setSignInError(null);}}
-              placeholder="Enter your password"
-              secureTextEntry
+                                placeholder="Enter your password"
+                                secureTextEntry
                                 error={validationErrors.password} // Show validation errors
                             />
 
@@ -277,31 +250,31 @@ const SignIn = () => {
                                 </View>
                              )}
 
-            <View style={styles.forgotPasswordContainer}>
+                            <View style={styles.forgotPasswordContainer}>
                                 <TouchableOpacity onPress={() => setForgotPasswordModalVisible(true)}>
-                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-              </TouchableOpacity>
-            </View>
+                                    <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                                </TouchableOpacity>
+                            </View>
 
-            <CustomButton
-              title="Sign In"
-              handlePress={handleSignIn}
-              containerStyles="mt-4 self-center"
+                            <CustomButton
+                                title="Sign In"
+                                handlePress={handleSignIn}
+                                containerStyles="mt-4 self-center"
                                 // Use the specific processing state for the button
                                 isLoading={isProcessingSignIn}
-            />
+                            />
 
-            <View style={styles.signupContainer}>
-              <Text style={styles.signupText}>Don't have an account? </Text>
-              <Link href="/sign-up" asChild>
-                <TouchableOpacity>
-                  <Text style={styles.signupLink}>Sign Up</Text>
-                </TouchableOpacity>
-              </Link>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+                            <View style={styles.signupContainer}>
+                                <Text style={styles.signupText}>Don't have an account? </Text>
+                                <Link href="/sign-up" asChild>
+                                    <TouchableOpacity>
+                                        <Text style={styles.signupLink}>Sign Up</Text>
+                                    </TouchableOpacity>
+                                </Link>
+                            </View>
+                        </View>
+                    </ScrollView>
+                </KeyboardAvoidingView>
 
                  {/* --- Forgot Password Modal (keep as is) --- */}
                  <Modal
@@ -340,9 +313,9 @@ const SignIn = () => {
                    </View>
                  </Modal>
 
-    </SafeAreaView>
+            </SafeAreaView>
         </ImageBackground>
-  );
+    );
 };
 
 // --- Add Style for the new error text ---
@@ -361,10 +334,7 @@ const styles = StyleSheet.create({
     padding: 20,
     justifyContent: 'center',
   },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
+ 
  
   formContainer: {
     height:'60%',

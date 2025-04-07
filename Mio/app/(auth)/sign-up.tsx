@@ -14,8 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CustomButton, InputField, Loader } from '../../components';
 import { useAuth } from '../../context/AuthContext';
 import Toast from 'react-native-toast-message';
-import { Colors, COLORS } from '../../constants/Colors';
-import { LinearGradient } from 'expo-linear-gradient';
+import {  COLORS } from '../../constants/Colors';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 
 const SignUp = () => {
   const router = useRouter();
@@ -122,9 +123,15 @@ const SignUp = () => {
         position: 'bottom',
         visibilityTime: 2000
       });
+      await AsyncStorage.removeItem('auth_error');
       setRegistrationReady(true);
-      // Navigation will be handled in the useEffect when registrationReady is true
     } catch (error: any) {
+      try {
+        await AsyncStorage.setItem('auth_error', 'true');
+      } catch (e) {
+        console.error("Failed to set auth_error flag:", e); 
+      }
+      
       if (error.code === 'auth/email-already-in-use') {
         Toast.show({
           type: 'error',
@@ -166,6 +173,7 @@ const SignUp = () => {
           visibilityTime: 4000
         });
       }
+    } finally {
       setProcessingAuth(false);
     }
   };
@@ -185,9 +193,7 @@ const SignUp = () => {
           style={{ flex: 1 }}
         >
           <ScrollView contentContainerStyle={styles.scrollView}>
-            <View style={styles.logoContainer}>
-              
-            </View>
+           
 
             <View style={styles.formContainer}>
               <Text style={styles.title}>Create Account</Text>
@@ -257,10 +263,7 @@ const styles = StyleSheet.create({
     padding: 20,
     justifyContent: 'center',
   },
-  logoContainer: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
+
  
   formContainer: {
     height:'60%',

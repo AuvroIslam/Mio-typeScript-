@@ -1,6 +1,4 @@
 import { Stack } from 'expo-router';
-import { useTheme } from '@react-navigation/native';
-import { COLORS } from '../../constants/Colors';
 
 export default function ProfileLayout() {
   return (

@@ -1,8 +1,8 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, Timestamp,  setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, Timestamp, setDoc } from 'firebase/firestore';
 import { AppState, AppStateStatus } from 'react-native';
 import { db } from '../config/firebaseConfig';
-import { useAuth, logoutEventEmitter, LOGOUT_EVENT } from './AuthContext';
+import { useAuth } from './AuthContext';
 import * as Haptics from 'expo-haptics';
 
 // Constants
@@ -204,39 +204,19 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     
     try {
       const showUserRef = doc(db, 'showUsers', showId);
-      const showUserDoc = await getDoc(showUserRef);
       
-     
-      const entry = {
-        userId: user.uid,
-        
-      };
-      
-      if (showUserDoc.exists()) {
-        if (isAdding) {
-          // Adding user to the show's users list
-          const users = showUserDoc.data().users || [];
-          const userIndex = users.findIndex((u: any) => u.userId === user.uid);
-          
-          if (userIndex >= 0) {
-            
-          } else {
-            // Add user to array
-            await updateDoc(showUserRef, {
-              users: arrayUnion(entry)
-            });
-          }
-        } else {
-          // Removing user from the show's users list
-          const users = showUserDoc.data().users || [];
-          const filteredUsers = users.filter((u: any) => u.userId !== user.uid);
-          await updateDoc(showUserRef, { users: filteredUsers });
-        }
-      } else if (isAdding) {
-        // Create document if adding
+      if (isAdding) {
+        // Add user ID using arrayUnion. If the doc doesn't exist, it creates it.
+        // If the user ID is already in the array, it does nothing.
         await setDoc(showUserRef, {
-          showId,
-          users: [entry]
+          showId: showId, // Optional: keep showId for clarity
+          users: arrayUnion(user.uid)
+        }, { merge: true }); // Use merge: true to create or update
+      } else {
+        // Remove user ID using arrayRemove. If the user ID isn't there, it does nothing.
+        // If the document exists and the array becomes empty, the document remains.
+        await updateDoc(showUserRef, {
+          users: arrayRemove(user.uid)
         });
       }
     } catch (error) {
@@ -341,6 +321,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Call success callback after both local and remote updates are complete
       if (onSuccess) setTimeout(() => onSuccess(), 0);
     } catch (error) {
+      console.error("Error removing from favorites:", error);
       // Rollback local state on error
       refreshUserFavorites(); // Reload from Firestore to ensure consistency
       
@@ -406,21 +387,6 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     // Remove from favorites
     removeFromFavorites(show, onSuccess, onError);
   };
-
-  useEffect(() => {
-    const handleLogout = () => {
-      // Reset state on logout
-      resetState();
-    };
-
-    // Listen for logout events
-    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
-
-    // Clean up
-    return () => {
-      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
-    };
-  }, [resetState]);
 
   return (
     <FavoritesContext.Provider

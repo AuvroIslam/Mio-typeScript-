@@ -4,7 +4,7 @@ import {
   View, 
   Text, 
   TouchableOpacity, 
- 
+  
   Image, 
   ActivityIndicator,
   Dimensions,
@@ -20,8 +20,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { LinearGradient } from 'expo-linear-gradient';
 
+
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { logoutEventEmitter, LOGOUT_EVENT } from '../../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.85;
@@ -45,7 +45,6 @@ interface MatchCardProps {
 
 const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
   const [isUnmatching, setIsUnmatching] = useState(false);
-  const { isNewMatch } = useMatch();
   
   const confirmUnmatch = () => {
     Alert.alert(
@@ -70,8 +69,23 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
     );
   };
 
-  // Use the shared isNewMatch function
-  const shouldBlurImage = isNewMatch(match.matchTimestamp);
+  // Check if match is less than 24 hours old
+  const isNewMatch = () => {
+    if (!match.matchTimestamp) return false;
+    
+    // Convert Firestore timestamp to Date if necessary
+    const matchDate = match.matchTimestamp.toDate ? 
+      match.matchTimestamp.toDate() : 
+      new Date(match.matchTimestamp);
+    
+    const now = new Date();
+    const timeDiff = now.getTime() - matchDate.getTime();
+    const hoursDiff = timeDiff / (1000 * 60 * 60);
+    
+    return hoursDiff < 24;
+  };
+
+  const shouldBlurImage = isNewMatch();
 
   return (
     <TouchableOpacity
@@ -158,7 +172,6 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
 export default function MatchScreen() {
   const { 
     matches, 
-    chattingWith,
     isSearching, 
     cooldownEndTime, 
     searchMatches, 
@@ -177,11 +190,6 @@ export default function MatchScreen() {
   const [showResultModal, setShowResultModal] = useState(false);
   const [matchesBeforeSearch, setMatchesBeforeSearch] = useState(0);
   
-  // Filter out matches who are in chattingWith
-  const filteredMatches = matches.filter(match => 
-    !chattingWith.some(chat => chat.userId === match.userId)
-  );
-  
   // Animation values
   const fadeAnim = useState(new Animated.Value(0))[0];
   const scaleAnim = useState(new Animated.Value(0.9))[0];
@@ -196,12 +204,12 @@ export default function MatchScreen() {
   }, [userFavorites]);
   
   useEffect(() => {
-    if (isFirstLoad && filteredMatches && filteredMatches.length > 0) {
+    if (isFirstLoad && matches && matches.length > 0) {
       setIsFirstLoad(false);
     }
     
     // Start animation when matches are loaded
-    if (filteredMatches && filteredMatches.length > 0) {
+    if (matches && matches.length > 0) {
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -215,7 +223,7 @@ export default function MatchScreen() {
         }),
       ]).start();
     }
-  }, [filteredMatches]);
+  }, [matches]);
   
   const handleSearch = async () => {
     // Reset animation values
@@ -223,8 +231,9 @@ export default function MatchScreen() {
     scaleAnim.setValue(0.9);
     
     // Store the current match count to calculate new matches later
-    const currentMatchCount = filteredMatches.length;
+    const currentMatchCount = matches.length;
     setMatchesBeforeSearch(currentMatchCount);
+    
     
     try {
       // Search for matches - the useEffect will handle showing notifications
@@ -269,7 +278,7 @@ export default function MatchScreen() {
   useEffect(() => {
     if (isSearching === false && matchesBeforeSearch > 0) {
       // Calculate new matches after search completes
-      const newMatches = filteredMatches.length - matchesBeforeSearch;
+      const newMatches = matches.length - matchesBeforeSearch;
 
       
       if (newMatches !== newMatchCount) {
@@ -285,7 +294,7 @@ export default function MatchScreen() {
       // Reset matchesBeforeSearch after processing
       setMatchesBeforeSearch(0);
     }
-  }, [filteredMatches, isSearching, matchesBeforeSearch, newMatchCount]);
+  }, [matches, isSearching, matchesBeforeSearch, newMatchCount]);
   
   // Render loading modal
   const renderLoadingModal = () => {
@@ -441,13 +450,34 @@ export default function MatchScreen() {
   };
   
   const renderMatchList = () => {
-    if (!filteredMatches || filteredMatches.length === 0) {
+    if (!matches || matches.length === 0) {
       return renderEmptyState();
+    }
+    
+    // Filter out matches that have chattingWith set to true
+    const availableMatches = matches.filter(match => !match.chattingWith);
+    
+    if (availableMatches.length === 0) {
+      return (
+        <View style={styles.emptyStateContainer}>
+          <Ionicons name="chatbubble-outline" size={100} color={COLORS.secondary} />
+          <Text style={styles.emptyStateTitle}>All Matches in Chat</Text>
+          <Text style={styles.emptyStateText}>
+            All your matches have started conversations. Check your inbox to continue chatting!
+          </Text>
+          <TouchableOpacity
+            style={styles.exploreButton}
+            onPress={() => router.push('/(tabs)/inbox')}
+          >
+            <Text style={styles.exploreButtonText}>Go to Inbox</Text>
+          </TouchableOpacity>
+        </View>
+      );
     }
     
     return (
       <FlatList
-        data={filteredMatches}
+        data={availableMatches}
         keyExtractor={(item) => item.userId}
         renderItem={({ item }) => (
           <Animated.View
@@ -468,24 +498,6 @@ export default function MatchScreen() {
       />
     );
   };
-  
-  useEffect(() => {
-    const handleLogout = () => {
-      // Clean up state on logout
-      setIsFirstLoad(true);
-      setNewMatchCount(0);
-      setShowResultModal(false);
-      setMatchesBeforeSearch(0);
-    };
-
-    // Listen for logout events
-    logoutEventEmitter.addListener(LOGOUT_EVENT, handleLogout);
-
-    // Clean up
-    return () => {
-      logoutEventEmitter.removeListener(LOGOUT_EVENT, handleLogout);
-    };
-  }, []);
   
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -627,7 +639,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.secondary,
   },
   superMatchBadge: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: COLORS.secondary,
   },
   matchBadgeText: {
     color: '#FFF',
