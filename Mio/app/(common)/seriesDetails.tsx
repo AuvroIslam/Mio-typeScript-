@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,7 @@ import { useFavorites } from '../../context/FavoritesContext';
 
 const { width, height } = Dimensions.get('window');
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
+const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY || '';
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5; // Assuming a default value, actual implementation needed
 
@@ -132,6 +133,8 @@ export default function SeriesDetailsScreen() {
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [forceRender, setForceRender] = useState(0); // Add a counter to force re-renders
 
+
+
   // Helper function to convert ShowDetails to ShowItem for favorites functions
   const toShowItem = (details: ShowDetails): ShowItem => ({
     id: details.id,
@@ -164,33 +167,32 @@ export default function SeriesDetailsScreen() {
     }
   }, [showId, showType]);
 
-  // Function to fetch show details from TMDB
-  const fetchShowDetails = useCallback(async () => {
-    if (!showId || !showType) {
-      console.error("Show ID or type missing");
-      return;
-    }
+  const fetchShowDetails = async () => {
+    if (!showId) return;
     
     setIsLoading(true);
-    // USE environment variable
-    const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
-
+    setError(null);
+    
     try {
-      // Check if key is defined
+      // Check if API key is available
       if (!TMDB_API_KEY) {
-        throw new Error("TMDB API Key is not defined!");
-      }
-
-      // Construct the API URL
-      const url = `https://api.themoviedb.org/3/tv/${showId}?api_key=${TMDB_API_KEY}&append_to_response=similar`;
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch show details');
+        throw new Error('TMDB API key is not configured');
       }
       
-      const data = await response.json();
+      // Fetch show details from TMDB
+      const detailsResponse = await fetch(
+        `https://api.themoviedb.org/3/tv/${showId}?api_key=${TMDB_API_KEY}&append_to_response=similar`
+      );
+      
+      if (!detailsResponse.ok) {
+        throw new Error(`Failed to fetch show details. Status: ${detailsResponse.status}`);
+      }
+      
+      const data = await detailsResponse.json();
+      
+      if (!data || !data.name) {
+        throw new Error('Invalid show data received from API');
+      }
       
       // Format show details
       setShowDetails({
@@ -226,17 +228,13 @@ export default function SeriesDetailsScreen() {
         setSimilarShows(formattedSimilar);
       }
     } catch (error) {
-      console.error("Error fetching show details:", error);
-      setError('Failed to load show details. Please try again.');
-      setFeedbackModal({
-        visible: true,
-        message: error instanceof Error ? error.message : 'Failed to load show details. Please try again.',
-        type: 'error'
-      });
+      console.error('Error fetching show details:', error);
+      setError(`Failed to load show details: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsLoading(false);
     }
-  }, [showId, showType]);
+  };
+
 
   const handleFavoriteToggle = () => {
     if (!showDetails) return;

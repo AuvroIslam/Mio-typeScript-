@@ -19,7 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, getDocs, collection } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { COLORS } from '../../constants/Colors';
@@ -34,6 +34,7 @@ const CARD_WIDTH = width * 0.42;
 const CARD_HEIGHT = CARD_WIDTH * 1.5;
 
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
+const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY || '';
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5;
 
@@ -122,7 +123,7 @@ async function classifyShow(show: any): Promise<ShowItem | null> {
 export default function HomeScreen() {
   const { user } = useAuth();
   const { 
-    
+    userFavorites, 
     isFavorite, 
     confirmAddToFavorites,
     confirmRemoveFromFavorites,
@@ -131,6 +132,9 @@ export default function HomeScreen() {
     removalCount,
     getTotalFavorites
   } = useFavorites();
+  
+  // Add logging to verify context is accessible
+
   
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -144,27 +148,38 @@ export default function HomeScreen() {
     message: '',
     type: 'success' as 'success' | 'error' | 'warning'
   });
+  // Add states for confirmation modals
   const [confirmAddModal, setConfirmAddModal] = useState(false);
   const [confirmRemoveModal, setConfirmRemoveModal] = useState(false);
 
+  // Fetch user favorites on mount and refresh when favorites change
   useEffect(() => {
     fetchTrendingShows('week');
   }, [user]);
   
+  // Force re-render when userFavorites changes to update UI
+
+
+  // Update to open appropriate confirmation modal
   const handleFavoriteToggle = (show: ShowItem) => {
     setSelectedShowForFavorite(show);
     
     const currentlyFavorite = isFavorite(show);
 
+    
+    // Trigger haptic feedback
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     
     if (currentlyFavorite) {
+      // Show confirmation for removal
       setConfirmRemoveModal(true);
     } else {
+      // Show confirmation for adding
       setConfirmAddModal(true);
     }
   };
   
+  // Handle confirming addition of a favorite
   const handleConfirmAddition = () => {
     if (!selectedShowForFavorite) return;
     
@@ -172,8 +187,13 @@ export default function HomeScreen() {
     
     confirmAddToFavorites(
       selectedShowForFavorite,
+      // Success callback
       () => {
+   
+        
+        // Refresh favorites from Firestore to ensure UI is in sync
         refreshUserFavorites().then(() => {
+   
           setFeedbackModal({
             visible: true,
             message: `Added to your favorites`,
@@ -181,6 +201,7 @@ export default function HomeScreen() {
           });
         });
       },
+      // Error callback
       () => {
         console.error(`Home: Failed to add ${selectedShowForFavorite.title} to favorites`);
         setFeedbackModal({
@@ -189,6 +210,7 @@ export default function HomeScreen() {
           type: 'error'
         });
       },
+      // Limit callback
       () => {
         console.warn(`Home: Favorites limit reached (${MAX_FAVORITES} maximum)`);
         setFeedbackModal({
@@ -200,6 +222,7 @@ export default function HomeScreen() {
     );
   };
   
+  // Handle confirming removal of a favorite
   const handleConfirmRemoval = () => {
     if (!selectedShowForFavorite) return;
     
@@ -207,8 +230,13 @@ export default function HomeScreen() {
     
     confirmRemoveFromFavorites(
       selectedShowForFavorite,
+      // Success callback
       () => {
+     
+        
+        // Refresh favorites from Firestore to ensure UI is in sync
         refreshUserFavorites().then(() => {
+       
           setFeedbackModal({
             visible: true,
             message: `Removed from your favorites`,
@@ -216,6 +244,7 @@ export default function HomeScreen() {
           });
         });
       },
+      // Error callback
       () => {
         console.error(`Home: Failed to remove ${selectedShowForFavorite.title} from favorites`);
         setFeedbackModal({
@@ -224,6 +253,7 @@ export default function HomeScreen() {
           type: 'error'
         });
       },
+      // Cooldown callback
       (cooldownTime) => {
         console.warn(`Home: Cooldown active (${cooldownTime}s) when trying to remove ${selectedShowForFavorite.title}`);
         const minutes = Math.floor(cooldownTime / 60);
@@ -237,46 +267,61 @@ export default function HomeScreen() {
     );
   };
 
+  // Refactor the fetchTrendingShows function to use Firestore single document
   const fetchTrendingShows = async (timeWindow: 'week') => {
     setIsLoading(true);
-    const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
     try {
+      // Check if API key is available
       if (!TMDB_API_KEY) {
-        throw new Error("TMDB API Key is not defined!");
+        throw new Error('TMDB API key is not configured');
       }
 
+      // Get trending shows from single Firestore document (only 1 read operation)
       const trendingDocRef = doc(db, 'trending', 'trendingShows');
       const trendingDoc = await getDoc(trendingDocRef);
       
       if (trendingDoc.exists() && trendingDoc.data().shows && trendingDoc.data().shows.length > 0) {
         const shows = trendingDoc.data().shows as ShowItem[];
         
+        // Sort by order field to maintain admin-specified ordering
         shows.sort((a, b) => (a.order || 0) - (b.order || 0));
        
         
         setTrendingShows(shows);
       } else {
       
+        // Fetch K-Drama using the discover endpoint
         const kdramaResponse = await fetch(
           `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_origin_country=KR&with_original_language=ko&sort_by=popularity.desc`
         );
+        if (!kdramaResponse.ok) {
+          throw new Error(`K-Drama API request failed with status: ${kdramaResponse.status}`);
+        }
         const kdramaData = await kdramaResponse.json();
     
+        // Fetch Anime using the discover endpoint with keyword filtering
         const animeResponse = await fetch(
           `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_origin_country=JP&with_keywords=210024&sort_by=popularity.desc`
         );
+        if (!animeResponse.ok) {
+          throw new Error(`Anime API request failed with status: ${animeResponse.status}`);
+        }
         const animeData = await animeResponse.json();
     
+        // Merge the two results arrays
         const combinedResults = interleavePreservingOrder(
           (kdramaData.results || []),
           (animeData.results || []))
       
+        // Classify each show using your classifyShow helper (which will label them as 'kdrama' or 'anime')
         const classifiedShows = await Promise.all(
           combinedResults.map((show: any) => classifyShow(show))
         );
     
+        // Filter out null values from classification
         let filteredShows = classifiedShows.filter((show): show is ShowItem => show !== null);
         
+        // Limit the number of items
         filteredShows = filteredShows.slice(0, 30);
         
         setTrendingShows(filteredShows);
@@ -285,7 +330,7 @@ export default function HomeScreen() {
       console.error('Error fetching trending shows:', error);
       setFeedbackModal({
         visible: true,
-        message: error instanceof Error ? error.message : 'Failed to load trending shows. Please try again.',
+        message: 'Failed to load trending shows. Please try again.',
         type: 'error'
       });
     } finally {
@@ -297,12 +342,15 @@ export default function HomeScreen() {
     const result: T[] = [];
     let i = 0, j = 0;
   
+    // Continue until both lists are exhausted.
     while (i < list1.length || j < list2.length) {
+      // If one list is exhausted, take from the other.
       if (i >= list1.length) {
         result.push(list2[j++]);
       } else if (j >= list2.length) {
         result.push(list1[i++]);
       } else {
+        // Randomly choose from either list, preserving internal order.
         if (Math.random() < 0.5) {
           result.push(list1[i++]);
         } else {
@@ -314,6 +362,11 @@ export default function HomeScreen() {
   }
   
   
+  // Helper function to shuffle an array (Fisher-Yates algorithm)
+  
+  
+
+  // Refactor the handleSearch function to use the helper and improve deduplication
   const handleSearch = useCallback(
     debounce(async (query: string) => {
       if (!query.trim()) {
@@ -323,44 +376,62 @@ export default function HomeScreen() {
       }
 
       setIsSearching(true);
-      const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
       try {
+        // Check if API key is available
         if (!TMDB_API_KEY) {
-          throw new Error("TMDB API Key is not defined!");
+          throw new Error('TMDB API key is not configured');
         }
-
+        
+        // Search using a single API call
         const searchResponse = await fetch(
           `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&page=1`
         );
+        
+        if (!searchResponse.ok) {
+          throw new Error(`Search API request failed with status: ${searchResponse.status}`);
+        }
+        
         const searchData = await searchResponse.json();
         
         if (!searchData.results) {
           throw new Error('Failed to search shows');
         }
         
+        // ******************************************
+        // DUPLICATION CHECK: Using Map to ensure unique shows by name
+        // ******************************************
+        
+        // Group results by original title to avoid duplicates
         const showMap = new Map<string, ShowItem>();
         
+        // Classify each show
         const classifiedShows = await Promise.all(
           searchData.results.map((show: any) => classifyShow(show))
         );
         
+        // Filter out null results and add to map to deduplicate
         classifiedShows
           .filter((show): show is ShowItem => show !== null)
           .forEach(show => {
             const nameKey = show.title.toLowerCase();
+            // This is the key deduplication check
             if (!showMap.has(nameKey)) {
               showMap.set(nameKey, show);
             }
           });
         
+        // Convert map to array for rendering
         const uniqueResults = Array.from(showMap.values());
+        // ******************************************
+        // END DUPLICATION CHECK
+        // ******************************************
         
         setSearchResults(uniqueResults);
       } catch (error) {
         console.error('Error searching shows:', error);
         setFeedbackModal({
           visible: true,
-          message: error instanceof Error ? error.message : 'Search failed. Please try again.',
+          message: 'Search failed. Please try again.',
           type: 'error'
         });
       } finally {
@@ -372,6 +443,7 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    // Also refresh favorites when pulling to refresh
     refreshUserFavorites().then(() => {
       fetchTrendingShows('week');
     });
@@ -402,20 +474,24 @@ export default function HomeScreen() {
             style={styles.cardImage} 
           />
           
+          {/* Type label - Cute version */}
           <View 
             style={[
               styles.typeLabel, 
+              {backgroundColor: item.type === 'anime' ? COLORS.quaternary : COLORS.tertiary}
             ]}
           >
             <Text 
               style={[
                 styles.typeLabelText, 
+                {color:  COLORS.secondary}
               ]}
             >
               {item.type === 'anime' ? '🍡 Anime' : '🧋 K-Drama'}
             </Text>
           </View>
           
+          {/* Updated favorite button to match seriesDetails.tsx style */}
           <View style={styles.cardOverlay}>
             <TouchableOpacity 
               style={[styles.favoriteButton, favorite ? styles.favoriteButtonActive : {}]}
@@ -457,6 +533,7 @@ export default function HomeScreen() {
             resizeMode="contain"
           />
         </View>
+        {/* Add favorites counter badge */}
         <View style={styles.favoritesCountContainer}>
           <Ionicons name="heart" size={18} color="#FFF" />
           <Text style={styles.favoritesCountText}>
@@ -519,6 +596,7 @@ export default function HomeScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
+          {/* Weekly Trending Section Title */}
           <View style={styles.trendingTitleContainer}>
             <Text style={styles.sectionTitle}>Weekly Trending</Text>
           </View>
@@ -548,6 +626,7 @@ export default function HomeScreen() {
         </ScrollView>
       )}
       
+      {/* Add Confirmation Modal */}
       <Modal
         visible={confirmAddModal}
         transparent
@@ -584,6 +663,7 @@ export default function HomeScreen() {
         </View>
       </Modal>
       
+      {/* Remove Confirmation Modal */}
       <Modal
         visible={confirmRemoveModal}
         transparent
@@ -622,6 +702,7 @@ export default function HomeScreen() {
         </View>
       </Modal>
       
+      {/* Feedback Modal */}
       <FeedbackModal
         visible={feedbackModal.visible}
         message={feedbackModal.message}

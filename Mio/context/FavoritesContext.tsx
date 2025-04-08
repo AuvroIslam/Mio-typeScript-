@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, Timestamp, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, Timestamp, increment, setDoc } from 'firebase/firestore';
 import { AppState, AppStateStatus } from 'react-native';
 import { db } from '../config/firebaseConfig';
 import { useAuth } from './AuthContext';
@@ -321,7 +321,6 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Call success callback after both local and remote updates are complete
       if (onSuccess) setTimeout(() => onSuccess(), 0);
     } catch (error) {
-      console.error("Error removing from favorites:", error);
       // Rollback local state on error
       refreshUserFavorites(); // Reload from Firestore to ensure consistency
       

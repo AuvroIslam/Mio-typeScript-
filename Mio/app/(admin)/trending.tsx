@@ -21,6 +21,8 @@ import { db } from '../../config/firebaseConfig';
 import { debounce } from 'lodash';
 
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
+const TMDB_API_KEY = 'b2b68cd65cf02c8da091b2857084bd4d';
+const TRENDING_DOC_ID = 'trendingShows'; // Single document ID for all trending shows
 
 // Define show item interface
 interface ShowItem {
@@ -50,7 +52,7 @@ export default function TrendingManager() {
   const fetchTrendingShows = async () => {
     setIsLoading(true);
     try {
-      const trendingDocRef = doc(db, 'trending', 'trendingShows');
+      const trendingDocRef = doc(db, 'trending', TRENDING_DOC_ID);
       const trendingDoc = await getDoc(trendingDocRef);
       
       if (trendingDoc.exists() && trendingDoc.data().shows) {
@@ -85,12 +87,7 @@ export default function TrendingManager() {
 
       setIsSearching(true);
       try {
-        // USE environment variable
-        const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
-        if (!TMDB_API_KEY) {
-          throw new Error("TMDB API Key is not defined!");
-        }
-
+        // Search for TV shows
         const searchResponse = await fetch(
           `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&page=1`
         );
@@ -134,7 +131,7 @@ export default function TrendingManager() {
         setSearchResults(processedResults);
       } catch (error) {
         console.error('Error searching shows:', error);
-        Alert.alert('Error', error instanceof Error ? error.message : 'Failed to search shows. Please try again.');
+        Alert.alert('Error', 'Search failed. Please try again.');
       } finally {
         setIsSearching(false);
       }
@@ -164,7 +161,7 @@ export default function TrendingManager() {
       const updatedTrendingShows = [...trendingShows, newShow];
       
       // Save the entire array to the single document
-      await setDoc(doc(db, 'trending', 'trendingShows'), {
+      await setDoc(doc(db, 'trending', TRENDING_DOC_ID), {
         shows: updatedTrendingShows,
         updatedAt: new Date()
       });
@@ -192,7 +189,7 @@ export default function TrendingManager() {
         }));
       
       // Save the updated array to Firestore
-      await setDoc(doc(db, 'trending', 'trendingShows'), {
+      await setDoc(doc(db, 'trending', TRENDING_DOC_ID), {
         shows: newTrendingShows,
         updatedAt: new Date()
       });
@@ -233,7 +230,7 @@ export default function TrendingManager() {
     
     try {
       // Save the entire array with updated order
-      await setDoc(doc(db, 'trending', 'trendingShows'), {
+      await setDoc(doc(db, 'trending', TRENDING_DOC_ID), {
         shows: updatedShows,
         updatedAt: new Date()
       });

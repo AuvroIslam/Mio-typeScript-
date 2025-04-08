@@ -41,6 +41,7 @@ import {
 import { db } from '../../config/firebaseConfig';
 import { 
   MESSAGE_BATCH_SIZE, 
+  ARCHIVE_THRESHOLD, 
   fetchArchivedMessages, 
   getArchiveMetadata
 } from '../../utils/messageArchive';
@@ -254,6 +255,7 @@ export default function ChatScreen() {
     photo: ''
   });
   const [unsubscribeConversation, setUnsubscribeConversation] = useState<() => void | null>(() => null);
+  const [unsubscribeMessages, setUnsubscribeMessages] = useState<() => void | null>(() => null);
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [isScreenLoading, setIsScreenLoading] = useState(false);
@@ -273,8 +275,9 @@ export default function ChatScreen() {
   useEffect(() => {
     return () => {
       if (unsubscribeConversation) unsubscribeConversation();
+      if (unsubscribeMessages) unsubscribeMessages();
     };
-  }, [unsubscribeConversation]);
+  }, [unsubscribeConversation, unsubscribeMessages]);
   
   // Initialize or load existing conversation
   useEffect(() => {
@@ -686,6 +689,7 @@ export default function ChatScreen() {
             // Unsubscribe listener BEFORE deleting data
             if (unsubscribeConversation) {
               unsubscribeConversation();
+              
             }
             // No need for setIsActionLoading here, screen is covered
             try {
@@ -722,6 +726,7 @@ export default function ChatScreen() {
             // Unsubscribe listener BEFORE deleting data
             if (unsubscribeConversation) {
               unsubscribeConversation();
+             
             }
             // No need for setIsActionLoading here, screen is covered
             try {

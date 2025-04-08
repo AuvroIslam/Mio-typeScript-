@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { 
   View, 
   Text, 
+  SafeAreaView as RNSafeAreaView, 
   StyleSheet, 
   Image, 
   ScrollView, 
@@ -18,18 +19,19 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
-import { doc, getDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayRemove, Timestamp } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
+import ParallaxScrollView from '../../components/ParallaxScrollView';
 import { COLORS } from '../../constants/Colors';
 import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 
 import icon from '../../assets/images/icon.png';
 import { useFavorites } from '../../context/FavoritesContext';
 
 const { width, height } = Dimensions.get('window');
-
+const PROFILE_IMAGE_SIZE = width * 0.35;
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5;
 const COOLDOWN_MINUTES = 5;
@@ -147,9 +149,9 @@ export default function ProfileScreen() {
     cooldownTimer, 
     removalCount, 
     confirmRemoveFromFavorites,
-    
+    getRemainingRemovals,
     getTotalFavorites,
-    
+    refreshUserFavorites
   } = useFavorites();
   
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -168,7 +170,7 @@ export default function ProfileScreen() {
     remainingRemovals: MAX_WEEKLY_REMOVALS
   });
   const [forceUpdate, setForceUpdate] = useState(0);
- 
+  const insets = useSafeAreaInsets();
 
 
 
@@ -213,21 +215,15 @@ export default function ProfileScreen() {
 
   // Fetch show details from TMDB using context favorites
   const fetchShowDetails = async () => {
-    const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
+    const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY || '';
     let shows: {[key: string]: ShowItem} = {};
     
     try {
-      // Check if the key is defined
+      // Check if API key is available
       if (!TMDB_API_KEY) {
-        console.error("TMDB API Key is not defined in environment variables!");
-        setFeedbackModal({
-          visible: true,
-          message: 'TMDB API Key is missing. Cannot fetch show details.',
-          type: 'error'
-        });
-        return; // Exit if key is missing
+        throw new Error('TMDB API key is not configured');
       }
-
+      
       // Fetch show details
       if (userFavorites.shows && userFavorites.shows.length > 0) {
         await Promise.all(userFavorites.shows.map(async (id) => {
@@ -235,6 +231,11 @@ export default function ProfileScreen() {
             const response = await fetch(
               `https://api.themoviedb.org/3/tv/${id}?api_key=${TMDB_API_KEY}&language=en-US`
             );
+            
+            if (!response.ok) {
+              throw new Error(`API request failed with status: ${response.status}`);
+            }
+            
             const data = await response.json();
             
             if (data && data.name) {
@@ -256,14 +257,19 @@ export default function ProfileScreen() {
             }
           } catch (error) {
             console.error(`Error fetching show ${id}:`, error);
+            // Continue with other shows even if one fails
           }
         }));
       }
       
-
       setFavoriteShows(shows);
     } catch (error) {
       console.error('Error fetching show details:', error);
+      setFeedbackModal({
+        visible: true,
+        message: 'Failed to load favorite shows. Please try again.',
+        type: 'error'
+      });
     }
   };
 

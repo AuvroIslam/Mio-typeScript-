@@ -23,7 +23,7 @@ import { COLORS } from '../../constants/Colors';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 const MAX_BIO_LENGTH = 150;
 
 interface ProfileFormData {

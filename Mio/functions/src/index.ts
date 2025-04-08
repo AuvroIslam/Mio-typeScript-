@@ -103,7 +103,7 @@ async function deleteStorageFolder(folderPath: string): Promise<void> {
  * This is more reliable than client-triggered archiving
  */
 export const scheduleMessageArchiving = functions.pubsub
-  .schedule("every 2 minutes") // Set to 2 mins for testing, change back later!
+  .schedule("every 24 hours") // Set to 2 mins for testing, change back later!
   .onRun(async () => {
     try {
       const db = admin.firestore();

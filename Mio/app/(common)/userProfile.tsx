@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   View, 
   Text, 
@@ -9,8 +9,7 @@ import {
   ActivityIndicator,
   Platform,
   Dimensions,
-  StatusBar,
-  Alert
+  StatusBar
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,7 +22,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
-const API_BASE_URL = "https://api.themoviedb.org/3";
 
 interface ProfileData {
   displayName: string;
@@ -103,45 +101,49 @@ export default function UserProfileScreen() {
     if (!favoriteShowIds.length) return;
     
     try {
-      const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY;
-
+      const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY || '';
+      
+      // Check if API key is available
       if (!TMDB_API_KEY) {
-        console.error("TMDB API Key is not defined!");
-        Alert.alert("Configuration Error", "TMDB API Key is missing. Cannot fetch show details.");
-        setIsLoading(false);
-        return;
+        throw new Error('TMDB API key is not configured');
       }
-
+      
       const shows: CommonShow[] = [];
       
       for (const showId of favoriteShowIds) {
-        const response = await fetch(
-          `${API_BASE_URL}/tv/${showId}?api_key=${TMDB_API_KEY}&language=en-US`
-        );
-        
-        if (response.ok) {
-          const data = await response.json();
+        try {
+          const response = await fetch(
+            `https://api.themoviedb.org/3/tv/${showId}?api_key=${TMDB_API_KEY}&language=en-US`
+          );
           
-          // Determine show type (anime or kdrama)
-          const isAnime = data.genres?.some((genre: any) => 
-            genre.name.toLowerCase().includes('animation')
-          ) || data.origin_country?.includes('JP');
-          
-          shows.push({
-            id: showId,
-            title: data.name,
-            posterPath: data.poster_path,
-            type: isAnime ? 'anime' : 'kdrama',
-            isMutual: commonShowIds.includes(showId)
-          });
+          if (response.ok) {
+            const data = await response.json();
+            
+            // Determine show type (anime or kdrama)
+            const isAnime = data.genres?.some((genre: any) => 
+              genre.name.toLowerCase().includes('animation')
+            ) || data.origin_country?.includes('JP');
+            
+            shows.push({
+              id: showId,
+              title: data.name,
+              posterPath: data.poster_path,
+              type: isAnime ? 'anime' : 'kdrama',
+              isMutual: commonShowIds.includes(showId)
+            });
+          } else {
+            console.error(`Failed to fetch show ${showId}: ${response.status}`);
+          }
+        } catch (showError) {
+          console.error(`Error processing show ${showId}:`, showError);
+          // Continue with other shows even if one fails
         }
       }
       
       setAllShows(shows);
     } catch (error) {
       console.error('Error fetching shows:', error);
-    } finally {
-      setIsLoading(false);
+      setError(`Failed to load shows: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
   

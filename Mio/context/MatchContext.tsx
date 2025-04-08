@@ -1,15 +1,21 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useMemo } from 'react';
 import { 
-
+  collection, 
+  query, 
+  where, 
+  getDocs, 
   doc, 
   getDoc, 
   setDoc, 
   updateDoc, 
   arrayUnion, 
   arrayRemove,
- 
+  increment,
   Timestamp,
- 
+  DocumentData,
+  DocumentReference,
+  addDoc,
+  deleteDoc,
   writeBatch
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -18,7 +24,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../config/firebaseConfig';
 import { useAuth } from './AuthContext';
 import { useFavorites } from './FavoritesContext';
-
+import { useRegistration } from './RegistrationContext';
 import * as Haptics from 'expo-haptics';
 
 // Constants
@@ -49,7 +55,15 @@ export interface MatchData {
   chattingWith?: boolean; // Track if users are already in a conversation
 }
 
+interface ShowUserEntry {
+  userId: string;
+  timestamp: Timestamp;
+}
 
+interface MatchShowData {
+  showId: string;
+  [key: string]: any; // Add other properties as needed
+}
 
 interface MatchContext {
   matches: MatchData[];
@@ -87,7 +101,7 @@ export const useMatch = () => {
 
 export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ children }) => {
   const { user } = useAuth();
- 
+  const { registrationData } = useRegistration();
   const { userFavorites } = useFavorites();
   
   const [matches, setMatches] = useState<MatchData[]>([]);
@@ -252,7 +266,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         setMatches([]);
       }
     } catch (error) {
-      console.error("Error loading matches:", error);
       setError('Failed to load your matches');
     } finally {
       setIsLoading(false);
@@ -298,7 +311,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         cooldownEndTime: cooldownEnd
       });
     } catch (error) {
-      console.error("Error setting cooldown:", error);
       // Silent error handling
     }
   }, [user, searchCount]);
@@ -317,7 +329,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         users: arrayUnion(user.uid)
       }, { merge: true });
     } catch (error) {
-      console.error("Error updating show users:", error);
       // Silent error handling
     }
   }, [user]);
@@ -338,7 +349,6 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
       
       return true;
     } catch (error) {
-      console.error("Error adding match to both users:", error);
       return false;
     }
   }, []);

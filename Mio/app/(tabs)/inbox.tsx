@@ -8,10 +8,10 @@ import {
   Image, 
   ActivityIndicator,
   Modal,
-  
+  Pressable,
   Alert
 } from 'react-native';
-import {  useRouter } from 'expo-router';
+import {  useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { useAuth } from '../../context/AuthContext';
@@ -57,8 +57,8 @@ export default function InboxScreen() {
   const { user } = useAuth();
   const { matches: contextMatches, updateChattingWithStatus, blockedUsers, unblockUser } = useMatch();
   const router = useRouter();
-  
- 
+  const params = useLocalSearchParams();
+  const initialMatchId = params.matchId as string;
   
   // Component state
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -266,7 +266,26 @@ export default function InboxScreen() {
     }
   };
   
-
+  const formatMessageTime = (timestamp: Timestamp) => {
+    const date = timestamp.toDate();
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) {
+      // Today, show time
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else if (diffDays === 1) {
+      // Yesterday
+      return 'Yesterday';
+    } else if (diffDays < 7) {
+      // This week, show day name
+      return date.toLocaleDateString([], { weekday: 'short' });
+    } else {
+      // Older, show date
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+  };
   
   // Function to truncate long messages
   const truncateText = (text: string, maxLength: number = 30): string => {
@@ -300,7 +319,9 @@ export default function InboxScreen() {
       ? truncateText(item.lastMessage.text) 
       : 'No messages yet';
     
-   
+    const timeText = item.lastMessage?.timestamp 
+      ? formatMessageTime(item.lastMessage.timestamp)
+      : '';
       
     const correspondingMatch = contextMatches.find((m: ContextMatchData) => m.userId === otherParticipantId);
     
