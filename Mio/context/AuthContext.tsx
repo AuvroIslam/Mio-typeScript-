@@ -55,8 +55,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const userDoc = await getDoc(userRef);
       const hasProfile = userDoc.exists() && userDoc.data().profileCompleted;
       
-      // Check if user is an admin (based on email)
-      const isAdmin = firebaseUser.email === 'oitijya2002@gmail.com';
+      // Check if user is an admin (based on email from environment variable)
+      const isAdmin = firebaseUser.email === process.env.EXPO_PUBLIC_ADMIN_EMAIL;
 
       setUser({
         uid: firebaseUser.uid,
