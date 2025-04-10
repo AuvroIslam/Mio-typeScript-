@@ -1,4 +1,4 @@
-import { View, StyleSheet, ImageBackground } from 'react-native'
+import { View, StyleSheet, ImageBackground, Platform } from 'react-native'
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
@@ -95,7 +95,12 @@ export default function App() {
 const styles = StyleSheet.create({
   backgroundImage: {
     flex: 1,
-    
+    ...Platform.select({
+      web: {
+        width: '100%',
+        height: '100%',
+      }
+    })
   },
   container: {
     flex: 1,

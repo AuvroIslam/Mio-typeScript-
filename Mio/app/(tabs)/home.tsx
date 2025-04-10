@@ -19,7 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, getDocs, collection } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
 import { useAuth } from '../../context/AuthContext';
 import { COLORS } from '../../constants/Colors';
@@ -123,7 +123,7 @@ async function classifyShow(show: any): Promise<ShowItem | null> {
 export default function HomeScreen() {
   const { user } = useAuth();
   const { 
-    userFavorites, 
+   
     isFavorite, 
     confirmAddToFavorites,
     confirmRemoveFromFavorites,

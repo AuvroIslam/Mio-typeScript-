@@ -239,7 +239,7 @@ export default function MatchScreen() {
       // Search for matches - the useEffect will handle showing notifications
       await searchMatches();
     } catch (error) {
-      // Error already handled by the context
+    console.error('Error in handleSearch:', error);
     }
   };
   

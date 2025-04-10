@@ -12,16 +12,13 @@ import {
   Dimensions,
   StatusBar,
   Modal,
-  Alert
+  
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '../../constants/Colors';
-import { useAuth } from '../../context/AuthContext';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
-import { db } from '../../config/firebaseConfig';
-import * as Haptics from 'expo-haptics';
+
 import placeholderIcon from '../../assets/images/icon.png';
 import { useFavorites } from '../../context/FavoritesContext';
 
@@ -104,17 +101,15 @@ const FeedbackModal = ({
 
 export default function SeriesDetailsScreen() {
   const params = useLocalSearchParams();
-  const { user } = useAuth();
+
   const { 
-    userFavorites, 
+  
     isFavorite, 
     confirmAddToFavorites, 
     confirmRemoveFromFavorites,
     isAddingToFavorites,
     isRemovingFavorite,
-    cooldownTimer,
     removalCount,
-    getRemainingRemovals,
     refreshUserFavorites,
     getTotalFavorites
   } = useFavorites();
@@ -255,7 +250,7 @@ export default function SeriesDetailsScreen() {
       setConfirmModal(true);
     } else {
       // Add to favorites
-      (`Series Details: Show is not favorite, adding to favorites`);
+      
       confirmAddToFavorites(
         show,
         // Success callback

@@ -41,7 +41,6 @@ import {
 import { db } from '../../config/firebaseConfig';
 import { 
   MESSAGE_BATCH_SIZE, 
-  ARCHIVE_THRESHOLD, 
   fetchArchivedMessages, 
   getArchiveMetadata
 } from '../../utils/messageArchive';
@@ -88,6 +87,7 @@ interface Conversation {
   messageCount?: number; // Track total message count
   archives?: ArchiveInfo[]; // References to archived messages in Storage
   archivedMessages?: number; // Count of archived messages
+  createdAt?: Timestamp; // Timestamp when the conversation was created
 }
 
 // Custom hook for managing messages
@@ -452,11 +452,15 @@ export default function ChatScreen() {
           
           // Set other user's information
           const otherParticipantId = conversationData.participants.find(p => p !== user.uid) || '';
+          // Find the correct match timestamp from the context
+          const matchInfo = matches.find(m => m.userId === otherParticipantId);
+          
           setOtherUser({
             id: otherParticipantId,
             name: conversationData.participantNames[otherParticipantId] || 'User',
             photo: conversationData.participantPhotos[otherParticipantId] || '',
-            matchTimestamp: conversationData.lastMessage?.timestamp
+            // Use the timestamp from the match context
+            matchTimestamp: matchInfo?.matchTimestamp || conversationData.createdAt || null // Fallback to conversation creation time if match not found
           });
           
           // Mark messages as read if needed
@@ -664,7 +668,10 @@ export default function ChatScreen() {
             {messageText}
           </Text>
         </View>
-        <Text style={styles.messageTime}>
+        <Text style={[
+          styles.messageTime,
+          !isOwnMessage && styles.otherMessageTime // Apply left alignment for other user's time
+        ]}>
           {timeString}
         </Text>
       </View>
@@ -1083,6 +1090,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#888',
     alignSelf: 'flex-end',
+  },
+  otherMessageTime: {
+    alignSelf: 'flex-start',
   },
   inputContainer: {
     flexDirection: 'row',
