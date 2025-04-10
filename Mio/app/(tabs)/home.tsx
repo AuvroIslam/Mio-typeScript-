@@ -581,6 +581,7 @@ export default function HomeScreen() {
             keyExtractor={(item) => `${item.type}-${item.id}`}
             numColumns={2}
             contentContainerStyle={styles.gridContainer}
+            style={Platform.select({ web: { overflowY: 'auto' }})}
           />
         ) : (
           <View style={styles.emptyContainer}>
@@ -595,6 +596,7 @@ export default function HomeScreen() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
+          style={Platform.select({ web: { overflowY: 'auto' }})}
         >
           {/* Weekly Trending Section Title */}
           <View style={styles.trendingTitleContainer}>
