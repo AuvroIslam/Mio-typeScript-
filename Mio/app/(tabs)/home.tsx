@@ -523,76 +523,6 @@ export default function HomeScreen() {
     );
   };
 
-  // --- HELPER FUNCTION FOR RENDERING CONTENT ---
-  // Defined inside HomeScreen to access state and props easily
-  const renderMainContent = (isWeb = false) => {
-    return (
-      <>
-        {isSearching ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={COLORS.secondary} />
-            <Text style={styles.loadingText}>Searching...</Text>
-          </View>
-        ) : searchQuery.length > 0 ? (
-          searchResults.length > 0 ? (
-            <FlatList
-              data={searchResults}
-              renderItem={renderShowCard} // Uses renderShowCard from outer scope
-              keyExtractor={(item) => `${item.type}-${item.id}`}
-              numColumns={2}
-              contentContainerStyle={styles.gridContainer}
-              // Search results might need their own scrolling even on web
-              // scrollEnabled={true} // Keep default (true) or explicitly set
-            />
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="search" size={60} color={COLORS.secondary} opacity={0.5} />
-              <Text style={styles.emptyText}>No results found</Text>
-              <Text style={styles.emptySubText}>Try a different search term</Text>
-            </View>
-          )
-        ) : (
-          // Render Trending Shows Section (inside the helper)
-          <>
-            <View style={styles.trendingTitleContainer}>
-              <Text style={styles.sectionTitle}>Weekly Trending</Text>
-            </View>
-            
-            {isLoading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={COLORS.secondary} />
-                <Text style={styles.loadingText}>Loading trending shows...</Text>
-              </View>
-            ) : (
-              <FlatList
-                data={trendingShows}
-                renderItem={renderShowCard} // Uses renderShowCard from outer scope
-                keyExtractor={(item) => `${item.type}-${item.id}`}
-                numColumns={2}
-                // Disable inner scrolling for trending list ONLY on web
-                scrollEnabled={!isWeb}
-                contentContainerStyle={styles.gridContainer}
-                ListEmptyComponent={() => (
-                  <View style={styles.emptyContainer}>
-                    <Ionicons name="trending-up" size={60} color={COLORS.secondary} opacity={0.5} />
-                    <Text style={styles.emptyText}>No trending shows found</Text>
-                    <Text style={styles.emptySubText}>Pull down to refresh</Text>
-                  </View>
-                )}
-                // Native RefreshControl - only needed when not wrapped in web ScrollView
-                refreshControl={
-                  !isWeb ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> : undefined
-                }
-              />
-            )}
-          </>
-        )}
-      </>
-    );
-  };
-  // --- END HELPER FUNCTION ---
-
-  // Main return statement for HomeScreen
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
@@ -638,23 +568,63 @@ export default function HomeScreen() {
         </View>
       </View>
       
-      {/* --- Conditionally render content --- */}
-      {Platform.OS === 'web' ? (
-        <ScrollView 
-          style={styles.webScrollContainer} 
-          contentContainerStyle={styles.webScrollContentContainer}
-          showsVerticalScrollIndicator={true}
-          scrollEventThrottle={16}
-          decelerationRate="normal"
-        >
-          {/* Render content inside web ScrollView, passing isWeb=true */}
-          {renderMainContent(true)}
-        </ScrollView>
+      {isSearching ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.secondary} />
+          <Text style={styles.loadingText}>Searching...</Text>
+        </View>
+      ) : searchQuery.length > 0 ? (
+        searchResults.length > 0 ? (
+          <FlatList
+            data={searchResults}
+            renderItem={renderShowCard}
+            keyExtractor={(item) => `${item.type}-${item.id}`}
+            numColumns={2}
+            contentContainerStyle={styles.gridContainer}
+          />
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="search" size={60} color={COLORS.secondary} opacity={0.5} />
+            <Text style={styles.emptyText}>No results found</Text>
+            <Text style={styles.emptySubText}>Try a different search term</Text>
+          </View>
+        )
       ) : (
-        // Render content directly for native, isWeb=false (default)
-        renderMainContent()
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
+          {/* Weekly Trending Section Title */}
+          <View style={styles.trendingTitleContainer}>
+            <Text style={styles.sectionTitle}>Weekly Trending</Text>
+          </View>
+          
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={COLORS.secondary} />
+              <Text style={styles.loadingText}>Loading trending shows...</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={trendingShows}
+              renderItem={renderShowCard}
+              keyExtractor={(item) => `${item.type}-${item.id}`}
+              numColumns={2}
+              scrollEnabled={false}
+              contentContainerStyle={styles.gridContainer}
+              ListEmptyComponent={() => (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="trending-up" size={60} color={COLORS.secondary} opacity={0.5} />
+                  <Text style={styles.emptyText}>No trending shows found</Text>
+                  <Text style={styles.emptySubText}>Pull down to refresh</Text>
+                </View>
+              )}
+            />
+          )}
+        </ScrollView>
       )}
-      {/* --- End conditional rendering --- */}
       
       {/* Add Confirmation Modal */}
       <Modal
@@ -785,9 +755,9 @@ const styles = StyleSheet.create({
   clearButton: {
     padding: 4,
   },
-  scrollContent: { // Native ScrollView content container (if you had one before, otherwise remove)
-     paddingBottom: 20,
-   },
+  scrollContent: {
+    paddingBottom: 20,
+  },
   trendingTitleContainer: {
     marginHorizontal: 20,
     marginTop: 10,
@@ -799,19 +769,12 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
     marginBottom: 10,
   },
-  gridContainer: { // Inner grid padding (used by both native/web FlatLists)
+  gridContainer: {
     paddingHorizontal: 10,
-    paddingBottom: 20, // Base padding for both
-    // Remove web-specific padding here if added before
   },
   cardContainer: {
     width: '50%',
     padding: 10,
-    ...Platform.select({
-      web: {
-        minHeight: 320,
-      }
-    })
   },
   card: {
     position: 'relative',
@@ -1028,14 +991,5 @@ const styles = StyleSheet.create({
     width: 60,
     height: 30,
     
-  },
-  // --- STYLES FOR WEB SCROLL WRAPPER ---
-  webScrollContainer: { // Style for the outer ScrollView ONLY on web
-    flex: 1, 
-  },
-  webScrollContentContainer: { // Content container for the outer ScrollView ONLY on web
-    paddingHorizontal: 15, // Add horizontal space for scroll initiation
-    paddingBottom: 80, // Extra space at the bottom for scrollability
-    paddingTop: 10, // Space below search bar
   },
 });
