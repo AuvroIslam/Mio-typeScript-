@@ -523,8 +523,8 @@ export default function HomeScreen() {
     );
   };
 
-  return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+  const ListHeader = () => (
+    <>
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <Image 
@@ -533,7 +533,6 @@ export default function HomeScreen() {
             resizeMode="contain"
           />
         </View>
-        {/* Add favorites counter badge */}
         <View style={styles.favoritesCountContainer}>
           <Ionicons name="heart" size={18} color="#FFF" />
           <Text style={styles.favoritesCountText}>
@@ -568,63 +567,56 @@ export default function HomeScreen() {
         </View>
       </View>
       
-      {isSearching ? (
+      {/* Only show trending title when not searching */}  
+      {!searchQuery && (
+        <View style={styles.trendingTitleContainer}>
+            <Text style={styles.sectionTitle}>Weekly Trending</Text>
+        </View>
+      )}
+    </>
+  );
+
+  const ListEmpty = () => {
+    if (isLoading || isSearching) {
+      return (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.secondary} />
-          <Text style={styles.loadingText}>Searching...</Text>
+          <Text style={styles.loadingText}>{isSearching ? 'Searching...' : 'Loading trending shows...'}</Text>
         </View>
-      ) : searchQuery.length > 0 ? (
-        searchResults.length > 0 ? (
-          <FlatList
-            data={searchResults}
-            renderItem={renderShowCard}
-            keyExtractor={(item) => `${item.type}-${item.id}`}
-            numColumns={2}
-            contentContainerStyle={styles.gridContainer}
-          />
-        ) : (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="search" size={60} color={COLORS.secondary} opacity={0.5} />
-            <Text style={styles.emptyText}>No results found</Text>
-            <Text style={styles.emptySubText}>Try a different search term</Text>
-          </View>
-        )
-      ) : (
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        >
-          {/* Weekly Trending Section Title */}
-          <View style={styles.trendingTitleContainer}>
-            <Text style={styles.sectionTitle}>Weekly Trending</Text>
-          </View>
-          
-          {isLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={COLORS.secondary} />
-              <Text style={styles.loadingText}>Loading trending shows...</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={trendingShows}
-              renderItem={renderShowCard}
-              keyExtractor={(item) => `${item.type}-${item.id}`}
-              numColumns={2}
-              scrollEnabled={false}
-              contentContainerStyle={styles.gridContainer}
-              ListEmptyComponent={() => (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="trending-up" size={60} color={COLORS.secondary} opacity={0.5} />
-                  <Text style={styles.emptyText}>No trending shows found</Text>
-                  <Text style={styles.emptySubText}>Pull down to refresh</Text>
-                </View>
-              )}
-            />
-          )}
-        </ScrollView>
-      )}
+      );
+    }
+    if (searchQuery) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="search" size={60} color={COLORS.secondary} opacity={0.5} />
+          <Text style={styles.emptyText}>No results found</Text>
+          <Text style={styles.emptySubText}>Try a different search term</Text>
+        </View>
+      );
+    } 
+    return (
+      <View style={styles.emptyContainer}>
+        <Ionicons name="trending-up" size={60} color={COLORS.secondary} opacity={0.5} />
+        <Text style={styles.emptyText}>No trending shows found</Text>
+        <Text style={styles.emptySubText}>Pull down to refresh</Text>
+      </View>
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <FlatList
+        data={searchQuery.length > 0 ? searchResults : trendingShows}
+        renderItem={renderShowCard}
+        keyExtractor={(item) => `${item.type}-${item.id}`}
+        numColumns={2}
+        contentContainerStyle={styles.gridContainer}
+        ListHeaderComponent={ListHeader}
+        ListEmptyComponent={ListEmpty}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      />
       
       {/* Add Confirmation Modal */}
       <Modal
@@ -770,7 +762,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   gridContainer: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
+    paddingBottom: 20,
   },
   cardContainer: {
     width: '50%',
