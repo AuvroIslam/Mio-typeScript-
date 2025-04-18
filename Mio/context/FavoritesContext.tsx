@@ -8,7 +8,7 @@ import * as Haptics from 'expo-haptics';
 // Constants
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5;
-const COOLDOWN_MINUTES = 5;
+const COOLDOWN_MINUTES = 60*24*7;
 
 type FavoriteType = 'anime' | 'kdrama';
 
@@ -31,6 +31,7 @@ interface FavoritesContextType {
   isRemovingFavorite: boolean;
   cooldownTimer: number | null;
   removalCount: number;
+  formattedCooldownString: string;
   
   // Methods
   isFavorite: (show: ShowItem) => boolean;
@@ -57,6 +58,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [lastRemovalTime, setLastRemovalTime] = useState<Date | null>(null);
   const [cooldownEndTime, setCooldownEndTime] = useState<Date | null>(null);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+  const [formattedCooldownString, setFormattedCooldownString] = useState<string>('');
 
   // Initial fetch and cooldown timer setup
   useEffect(() => {
@@ -83,6 +85,34 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, [appState, cooldownEndTime]);
 
+  // Helper function to format time
+  const formatCooldownTime = (totalSeconds: number): string => {
+    if (totalSeconds <= 0) return "Ready";
+
+    const days = Math.floor(totalSeconds / (60 * 60 * 24));
+    const hours = Math.floor((totalSeconds % (60 * 60 * 24)) / (60 * 60));
+    const minutes = Math.floor((totalSeconds % (60 * 60)) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+
+    let parts: string[] = [];
+
+    if (days > 0) {
+      parts.push(`${days}d`);
+      if (hours > 0) parts.push(`${hours}h`); // Show hours if days are present
+    } else if (hours > 0) {
+      parts.push(`${hours}h`);
+      if (minutes > 0) parts.push(`${minutes}m`); // Show minutes if hours are present
+    } else if (minutes > 0) {
+      parts.push(`${minutes}m`);
+      if (seconds > 0) parts.push(`${seconds}s`); // Show seconds if minutes are present
+    } else if (seconds > 0) { 
+      parts.push(`${seconds}s`); // Only show seconds if nothing else is left
+    }
+
+    // Fallback in case calculation results in empty parts (shouldn't happen with logic above)
+    return parts.length > 0 ? parts.join(' ') : "Ready"; 
+  };
+
   // Function to update timer based on absolute end time
   const updateRemainingCooldownTime = useCallback(() => {
     if (!cooldownEndTime) return;
@@ -94,9 +124,11 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setCooldownEndTime(null);
       setCooldownTimer(null);
       setRemovalCount(0);
+      setFormattedCooldownString('');
     } else {
       const remainingSeconds = Math.ceil(remainingMs / 1000);
       setCooldownTimer(remainingSeconds);
+      setFormattedCooldownString(formatCooldownTime(remainingSeconds));
     }
   }, [cooldownEndTime]);
 
@@ -125,6 +157,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setCooldownTimer(null);
     setLastRemovalTime(null);
     setCooldownEndTime(null);
+    setFormattedCooldownString('');
   };
 
   const refreshUserFavorites = async () => {
@@ -155,20 +188,24 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           if (now < cooldownEnd) {
             // Cooldown is still active
             const remainingMs = cooldownEnd.getTime() - now.getTime();
-            setCooldownTimer(Math.ceil(remainingMs / 1000));
+            const remainingSeconds = Math.ceil(remainingMs / 1000);
+            setCooldownTimer(remainingSeconds);
             setLastRemovalTime(lastRemoval);
             setCooldownEndTime(cooldownEnd);
+            setFormattedCooldownString(formatCooldownTime(remainingSeconds));
           } else if (profile.weeklyRemovals === 0) {
             // Cooldown has expired and reset is already done
             setCooldownTimer(null);
             setLastRemovalTime(null);
             setCooldownEndTime(null);
+            setFormattedCooldownString('');
           } else {
             // Cooldown has expired but count wasn't reset
             setCooldownTimer(null);
             setRemovalCount(0);
             setLastRemovalTime(null);
             setCooldownEndTime(null);
+            setFormattedCooldownString('');
             
             // Update Firestore
             try {
@@ -300,6 +337,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setCooldownEndTime(cooldownEnd);
         setCooldownTimer(COOLDOWN_MINUTES * 60);
         setLastRemovalTime(now);
+        setFormattedCooldownString('');
       } else {
         setRemovalCount(newRemovalCount);
       }
@@ -395,6 +433,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         isRemovingFavorite,
         cooldownTimer,
         removalCount,
+        formattedCooldownString,
         isFavorite,
         addToFavorites,
         removeFromFavorites,

@@ -25,16 +25,15 @@ import { useAuth } from '../../context/AuthContext';
 import { COLORS } from '../../constants/Colors';
 import { debounce } from 'lodash';
 import * as Haptics from 'expo-haptics';
-import icon from '../../assets/images/icon.png';
 import mioLogo from '../../assets/images/mioLogo.png';
 import { useFavorites } from '../../context/FavoritesContext';
+import { tmdbApi } from '../../utils/tmdbApi';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.42;
 const CARD_HEIGHT = CARD_WIDTH * 1.5;
 
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
-const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY || '';
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5;
 
@@ -93,6 +92,8 @@ const FeedbackModal = ({
     </Modal>
   );
 };
+
+// Helper function to classify shows based on TMDB data
 async function classifyShow(show: any): Promise<ShowItem | null> {
   // Check for K-Drama based on language or country
   const isKDrama =
@@ -101,7 +102,7 @@ async function classifyShow(show: any): Promise<ShowItem | null> {
 
   // Check for Anime based on origin country or genre_ids (Animation genre: id 16)
   const isAnime =
-    (show.origin_country && show.origin_country.includes('JP')) &&
+    (show.origin_country && show.origin_country.includes('JP')) ||
     (show.genre_ids && show.genre_ids.includes(16));
 
   // Only return the show if it's either anime or K-drama
@@ -130,6 +131,7 @@ export default function HomeScreen() {
     isAddingToFavorites,
     refreshUserFavorites,
     removalCount,
+    formattedCooldownString,
     getTotalFavorites
   } = useFavorites();
   
@@ -154,7 +156,7 @@ export default function HomeScreen() {
 
   // Fetch user favorites on mount and refresh when favorites change
   useEffect(() => {
-    fetchTrendingShows('week');
+    fetchTrendingShowsFromFirestore();
   }, [user]);
   
   // Force re-render when userFavorites changes to update UI
@@ -267,106 +269,63 @@ export default function HomeScreen() {
     );
   };
 
-  // Refactor the fetchTrendingShows function to use Firestore single document
-  const fetchTrendingShows = async (timeWindow: 'week') => {
+  // Fetch trending shows from Firestore first, fallback to API
+  const fetchTrendingShowsFromFirestore = async () => {
     setIsLoading(true);
     try {
-      // Check if API key is available
-      if (!TMDB_API_KEY) {
-        throw new Error('TMDB API key is not configured');
-      }
-
-      // Get trending shows from single Firestore document (only 1 read operation)
       const trendingDocRef = doc(db, 'trending', 'trendingShows');
       const trendingDoc = await getDoc(trendingDocRef);
-      
-      if (trendingDoc.exists() && trendingDoc.data().shows && trendingDoc.data().shows.length > 0) {
-        const shows = trendingDoc.data().shows as ShowItem[];
-        
-        // Sort by order field to maintain admin-specified ordering
-        shows.sort((a, b) => (a.order || 0) - (b.order || 0));
-       
-        
+
+      if (trendingDoc.exists() && trendingDoc.data().shows?.length > 0) {
+        const shows = (trendingDoc.data().shows as ShowItem[])
+                      .sort((a, b) => (a.order || 0) - (b.order || 0));
         setTrendingShows(shows);
+        setIsLoading(false);
       } else {
-      
-        // Fetch K-Drama using the discover endpoint
-        const kdramaResponse = await fetch(
-          `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_origin_country=KR&with_original_language=ko&sort_by=popularity.desc`
-        );
-        if (!kdramaResponse.ok) {
-          throw new Error(`K-Drama API request failed with status: ${kdramaResponse.status}`);
-        }
-        const kdramaData = await kdramaResponse.json();
-    
-        // Fetch Anime using the discover endpoint with keyword filtering
-        const animeResponse = await fetch(
-          `https://api.themoviedb.org/3/discover/tv?api_key=${TMDB_API_KEY}&with_origin_country=JP&with_keywords=210024&sort_by=popularity.desc`
-        );
-        if (!animeResponse.ok) {
-          throw new Error(`Anime API request failed with status: ${animeResponse.status}`);
-        }
-        const animeData = await animeResponse.json();
-    
-        // Merge the two results arrays
-        const combinedResults = interleavePreservingOrder(
-          (kdramaData.results || []),
-          (animeData.results || []))
-      
-        // Classify each show using your classifyShow helper (which will label them as 'kdrama' or 'anime')
-        const classifiedShows = await Promise.all(
-          combinedResults.map((show: any) => classifyShow(show))
-        );
-    
-        // Filter out null values from classification
-        let filteredShows = classifiedShows.filter((show): show is ShowItem => show !== null);
-        
-        // Limit the number of items
-        filteredShows = filteredShows.slice(0, 30);
-        
-        setTrendingShows(filteredShows);
+        // If Firestore is empty or fails, fetch from API as fallback
+        fetchTrendingFromApi();
       }
     } catch (error) {
-      console.error('Error fetching trending shows:', error);
+      console.error('Error fetching trending shows from Firestore:', error);
+      // Fallback to API on Firestore error
+      fetchTrendingFromApi();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Fetch trending shows directly from TMDB API using the utility
+  const fetchTrendingFromApi = async (timeWindow: 'week' = 'week') => {
+    try {
+        // Fetch trending shows using the utility
+        const data = await tmdbApi.getTrending(timeWindow);
+
+        if (!data || !data.results) {
+          throw new Error('Failed to fetch trending shows from API');
+        }
+
+        // Classify and filter shows
+        const classifiedShows = await Promise.all(
+          data.results.map((show: any) => classifyShow(show))
+        );
+        const filteredShows = classifiedShows.filter((show): show is ShowItem => show !== null);
+
+        setTrendingShows(filteredShows.slice(0, 30)); // Limit results
+
+    } catch (error) {
+      console.error('Error fetching trending shows from API:', error);
       setFeedbackModal({
         visible: true,
         message: 'Failed to load trending shows. Please try again.',
         type: 'error'
       });
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); // Ensure loading is false even after fallback
       setRefreshing(false);
     }
   };
-  function interleavePreservingOrder<T>(list1: T[], list2: T[]): T[] {
-    const result: T[] = [];
-    let i = 0, j = 0;
-  
-    // Continue until both lists are exhausted.
-    while (i < list1.length || j < list2.length) {
-      // If one list is exhausted, take from the other.
-      if (i >= list1.length) {
-        result.push(list2[j++]);
-      } else if (j >= list2.length) {
-        result.push(list1[i++]);
-      } else {
-        // Randomly choose from either list, preserving internal order.
-        if (Math.random() < 0.5) {
-          result.push(list1[i++]);
-        } else {
-          result.push(list2[j++]);
-        }
-      }
-    }
-    return result;
-  }
-  
-  
-  // Helper function to shuffle an array (Fisher-Yates algorithm)
-  
-  
 
-  // Refactor the handleSearch function to use the helper and improve deduplication
+  // Refactor the handleSearch function to use tmdbApi
   const handleSearch = useCallback(
     debounce(async (query: string) => {
       if (!query.trim()) {
@@ -377,56 +336,29 @@ export default function HomeScreen() {
 
       setIsSearching(true);
       try {
-        // Check if API key is available
-        if (!TMDB_API_KEY) {
-          throw new Error('TMDB API key is not configured');
-        }
-        
-        // Search using a single API call
-        const searchResponse = await fetch(
-          `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}&page=1`
-        );
-        
-        if (!searchResponse.ok) {
-          throw new Error(`Search API request failed with status: ${searchResponse.status}`);
-        }
-        
-        const searchData = await searchResponse.json();
-        
-        if (!searchData.results) {
+        // Use the tmdbApi utility for searching
+        const data = await tmdbApi.searchShows(query);
+
+        if (!data || !data.results) {
           throw new Error('Failed to search shows');
         }
-        
-        // ******************************************
-        // DUPLICATION CHECK: Using Map to ensure unique shows by name
-        // ******************************************
-        
-        // Group results by original title to avoid duplicates
+
+        // Classify and deduplicate results (same logic as before)
         const showMap = new Map<string, ShowItem>();
-        
-        // Classify each show
         const classifiedShows = await Promise.all(
-          searchData.results.map((show: any) => classifyShow(show))
+          data.results.map((show: any) => classifyShow(show))
         );
-        
-        // Filter out null results and add to map to deduplicate
         classifiedShows
           .filter((show): show is ShowItem => show !== null)
           .forEach(show => {
-            const nameKey = show.title.toLowerCase();
-            // This is the key deduplication check
+            const nameKey = (show.title || '').toLowerCase(); // Handle potential undefined title
             if (!showMap.has(nameKey)) {
               showMap.set(nameKey, show);
             }
           });
-        
-        // Convert map to array for rendering
         const uniqueResults = Array.from(showMap.values());
-        // ******************************************
-        // END DUPLICATION CHECK
-        // ******************************************
-        
         setSearchResults(uniqueResults);
+
       } catch (error) {
         console.error('Error searching shows:', error);
         setFeedbackModal({
@@ -437,15 +369,14 @@ export default function HomeScreen() {
       } finally {
         setIsSearching(false);
       }
-    }, 500),
-    []
+    }, 500), // Keep debounce
+    [] // Dependencies
   );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    // Also refresh favorites when pulling to refresh
     refreshUserFavorites().then(() => {
-      fetchTrendingShows('week');
+      fetchTrendingShowsFromFirestore(); // Refresh from Firestore first
     });
   }, []);
 
@@ -469,7 +400,7 @@ export default function HomeScreen() {
             source={{ 
               uri: item.posterPath 
                 ? `${TMDB_IMAGE_BASE_URL}w500${item.posterPath}` 
-                : Image.resolveAssetSource(icon).uri
+                : 'https://via.placeholder.com/500x750?text=No+Poster'
             }} 
             style={styles.cardImage} 
           />
@@ -675,9 +606,10 @@ export default function HomeScreen() {
             <Ionicons name="alert-circle-outline" size={60} color={COLORS.darkMaroon} />
             <Text style={styles.confirmTitle}>Remove from Favorites?</Text>
             <Text style={styles.confirmMessage}>
-              You have {MAX_WEEKLY_REMOVALS - removalCount} removals left.
-              {removalCount === MAX_WEEKLY_REMOVALS - 1 && 
-                ' This will be your last removal before the cooldown starts.'}
+              {formattedCooldownString && formattedCooldownString !== 'Ready' 
+                ? `Cooldown active. You need to wait ${formattedCooldownString} before removing more.`
+                : `You have ${MAX_WEEKLY_REMOVALS - removalCount} removals left.${removalCount === MAX_WEEKLY_REMOVALS - 1 ? ' This will be your last removal before the cooldown starts.' : ''}`
+              }
             </Text>
             
             <View style={styles.confirmButtons}>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -17,8 +17,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '../../constants/Colors';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
-import { MatchLevel } from '../../context/MatchContext';
+import { MatchLevel } from '../../types/match';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { useFavorites } from '../../context/FavoritesContext';
+import { useAuth } from '../../context/AuthContext';
+import { fetchTMDB } from '../../utils/tmdbApi';
 
 const { width, height } = Dimensions.get('window');
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
@@ -39,7 +43,7 @@ interface ProfileData {
   additionalPics?: string[];
 }
 
-interface CommonShow {
+interface ShowDisplayData {
   id: string;
   title: string;
   posterPath: string;
@@ -51,16 +55,28 @@ export default function UserProfileScreen() {
   const params = useLocalSearchParams();
   const userId = params.userId as string;
   const matchLevel = params.matchLevel as MatchLevel;
-  const commonShowIds = params.commonShows ? (params.commonShows as string).split(',') : [];
-  const favoriteShowIds = params.favoriteShows ? (params.favoriteShows as string).split(',') : [];
+  // Wrap initialization in useMemo to stabilize dependency
+      const favoriteShowIdsFromParam = useMemo(() => {
+     return params.favoriteShows ? (params.favoriteShows as string).split(',') : [];
+   }, [params.favoriteShows]);
   const matchTimestamp = params.matchTimestamp ? new Date(params.matchTimestamp as string) : null;
   
+  
+  const { userFavorites } = useFavorites();
+  
   const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [allShows, setAllShows] = useState<CommonShow[]>([]);
+  const [matchedUserShows, setMatchedUserShows] = useState<ShowDisplayData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Check if match is less than 24 hours old
+  const commonShowIds = useMemo(() => {
+    if (!userFavorites?.shows || !favoriteShowIdsFromParam) {
+      return [];
+    }
+    const currentUserFavoritesSet = new Set(userFavorites.shows);
+    return favoriteShowIdsFromParam.filter(id => currentUserFavoritesSet.has(id));
+  }, [userFavorites?.shows, favoriteShowIdsFromParam]);
+  
   const isNewMatch = () => {
     if (!matchTimestamp) return false;
     
@@ -76,16 +92,19 @@ export default function UserProfileScreen() {
   useEffect(() => {
     if (userId) {
       fetchUserProfile();
-      fetchAllShows();
+      fetchMatchedUserShowDetails();
     }
-  }, [userId]);
+  }, [userId, favoriteShowIdsFromParam]);
   
   const fetchUserProfile = async () => {
     try {
       const userDoc = await getDoc(doc(db, 'users', userId));
       if (userDoc.exists() && userDoc.data().profile) {
         const profileData = userDoc.data().profile;
-        setProfile(profileData);
+        setProfile({
+          ...profileData,
+          favoriteShows: profileData.favoriteShows || favoriteShowIdsFromParam
+        });
       } else {
         setError('User profile not found');
       }
@@ -97,50 +116,41 @@ export default function UserProfileScreen() {
     }
   };
   
-  const fetchAllShows = async () => {
-    if (!favoriteShowIds.length) return;
-    
+  const fetchMatchedUserShowDetails = async () => {
+    if (!favoriteShowIdsFromParam.length) {
+        setMatchedUserShows([]);
+        return;
+    }
+
     try {
-      const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY || '';
-      
-      // Check if API key is available
-      if (!TMDB_API_KEY) {
-        throw new Error('TMDB API key is not configured');
-      }
-      
-      const shows: CommonShow[] = [];
-      
-      for (const showId of favoriteShowIds) {
+      const shows: ShowDisplayData[] = [];
+      const currentUserFavoritesSet = new Set(userFavorites?.shows || []);
+
+      for (const showId of favoriteShowIdsFromParam) {
         try {
-          const response = await fetch(
-            `https://api.themoviedb.org/3/tv/${showId}?api_key=${TMDB_API_KEY}&language=en-US`
-          );
-          
-          if (response.ok) {
-            const data = await response.json();
-            
-            // Determine show type (anime or kdrama)
-            const isAnime = data.genres?.some((genre: any) => 
+          const data = await fetchTMDB(`/tv/${showId}`);
+
+          if (data) {
+            const isAnime = data.genres?.some((genre: any) =>
               genre.name.toLowerCase().includes('animation')
-            ) || data.origin_country?.includes('JP');
-            
+            ) || data.origin_country?.includes('JP') || data.original_language === 'ja';
+
             shows.push({
               id: showId,
               title: data.name,
               posterPath: data.poster_path,
               type: isAnime ? 'anime' : 'kdrama',
-              isMutual: commonShowIds.includes(showId)
+              isMutual: currentUserFavoritesSet.has(showId)
             });
           } else {
-            console.error(`Failed to fetch show ${showId}: ${response.status}`);
+            console.error(`Failed to fetch show ${showId}: No data returned`);
           }
         } catch (showError) {
           console.error(`Error processing show ${showId}:`, showError);
-          // Continue with other shows even if one fails
         }
       }
-      
-      setAllShows(shows);
+
+      setMatchedUserShows(shows);
     } catch (error) {
       console.error('Error fetching shows:', error);
       setError(`Failed to load shows: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -202,19 +212,26 @@ export default function UserProfileScreen() {
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       
       <ScrollView style={styles.scrollView}>
-        {/* Header with profile image */}
         <View style={styles.headerContainer}>
           {shouldBlurImages ? (
             <View style={styles.blurImageContainer}>
               <Image 
-                source={{ uri: profile.profilePic }}
+                source={{ 
+                  uri: profile.profilePic 
+                    ? profile.profilePic
+                    : 'https://via.placeholder.com/300x300?text=No+Pic'
+                }}
                 style={[styles.profileImage, ]}
                 blurRadius={40}
               />
             </View>
           ) : (
             <Image 
-              source={{ uri: profile.profilePic }} 
+              source={{ 
+                uri: profile.profilePic 
+                  ? profile.profilePic
+                  : 'https://via.placeholder.com/300x300?text=No+Pic'
+              }} 
               style={styles.profileImage} 
             />
           )}
@@ -258,7 +275,10 @@ export default function UserProfileScreen() {
               style={styles.chatButton} className='mt-8'
               onPress={() => router.push({
                 pathname: '/(conversations)/chat',
-                params: { matchId: userId, fromInbox: 'false' }
+                params: { 
+                  matchId: userId, 
+                  fromInbox: 'false' 
+                } 
               })}
             >
               <Ionicons name="chatbubble" size={18} color="#FFF" />
@@ -273,9 +293,7 @@ export default function UserProfileScreen() {
           </View>
         </View>
         
-        {/* Profile Details */}
         <View style={styles.contentContainer}>
-          {/* Basic Info */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="person" size={20} color={COLORS.secondary} />
@@ -307,20 +325,19 @@ export default function UserProfileScreen() {
             </View>
           </View>
           
-          {/* Favorite Shows */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="heart" size={20} color={COLORS.secondary} />
               <Text style={styles.sectionTitle}>Favorite Shows</Text>
             </View>
             
-            {allShows.length > 0 ? (
+            {matchedUserShows.length > 0 ? (
               <ScrollView 
                 horizontal 
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.commonShowsContainer}
               >
-                {allShows.map(show => (
+                {matchedUserShows.map(show => (
                   <View key={show.id} style={styles.showCard}>
                     <View style={styles.showImageContainer}>
                       <Image 
@@ -353,11 +370,10 @@ export default function UserProfileScreen() {
                 ))}
               </ScrollView>
             ) : (
-              <Text style={styles.noContentText}>Shows are loading...</Text>
+              <Text style={styles.noContentText}>Shows are loading or none shared...</Text>
             )}
           </View>
           
-          {/* Favorite Movie & Band */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Ionicons name="heart-circle" size={20} color={COLORS.secondary} />
@@ -411,7 +427,6 @@ export default function UserProfileScreen() {
             )}
           </View>
           
-          {/* Photos Gallery */}
           {profile.additionalPics && profile.additionalPics.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -429,14 +444,22 @@ export default function UserProfileScreen() {
                     {shouldBlurImages ? (
                       <View style={styles.photoBlurContainer}>
                         <Image 
-                          source={{ uri: photo }}
+                          source={{ 
+                            uri: photo 
+                              ? photo
+                              : 'https://via.placeholder.com/200x200?text=No+Photo'
+                          }}
                           style={styles.additionalPhoto}
                           blurRadius={40}
                         />
                       </View>
                     ) : (
                       <Image 
-                        source={{ uri: photo }} 
+                        source={{ 
+                          uri: photo 
+                            ? photo
+                            : 'https://via.placeholder.com/200x200?text=No+Photo'
+                        }} 
                         style={styles.additionalPhoto}
                       />
                     )}

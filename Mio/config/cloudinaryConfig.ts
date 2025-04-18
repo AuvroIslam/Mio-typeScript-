@@ -1,30 +1,26 @@
 // Cloudinary configuration for React Native
-// We use direct HTTP API instead of the Node.js SDK which isn't compatible with React Native
+// We use Firebase Functions for secure uploads
 import { Platform } from 'react-native';
+import { getFunctions, httpsCallable } from "firebase/functions";
 
-// Cloudinary configuration
-const CLOUD_NAME = process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME || '';
-if (!CLOUD_NAME) {
-  console.error('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME is not defined in environment variables');
-}
-
-// The upload URL with preset
-const CLOUDINARY_UPLOAD_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`;
-
-const UPLOAD_PRESET = process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET || '';
-if (!UPLOAD_PRESET) {
-  console.error('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET is not defined in environment variables');
-}
-
-
-// Function to upload an image to Cloudinary using unsigned upload with preset
+// Function to upload an image to Cloudinary using signed upload
 export const uploadImage = async (localUri: string): Promise<string> => {
   try {
-    // Validate required configuration
-    if (!CLOUD_NAME || !UPLOAD_PRESET) {
-      throw new Error('Cloudinary configuration is incomplete. Please check CLOUD_NAME and UPLOAD_PRESET.');
-    }
-
+    // Get the Cloudinary signature from Firebase Function
+    const functions = getFunctions();
+    const getCloudinarySignature = httpsCallable(functions, 'getCloudinarySignature');
+    const signatureResult = await getCloudinarySignature();
+    
+    // Extract signature data
+    const signatureData = signatureResult.data as {
+      signature: string;
+      timestamp: number;
+      cloudName: string;
+      apiKey: string;
+      folder: string;
+      uploadPreset: string;
+    };
+    
     // Create form data for upload
     const formData = new FormData();
     
@@ -42,22 +38,25 @@ export const uploadImage = async (localUri: string): Promise<string> => {
       ? `file://${localUri}` 
       : localUri;
     
-
-    
-    // Append file to formData
+    // Add all required parameters for signed upload
     formData.append('file', {
       uri: fileUri,
       type: mimeType,
       name: fileName,
     } as any);
     
-    formData.append('upload_preset', UPLOAD_PRESET);
-    formData.append('folder', 'mio_app_profiles');
+    // Add parameters from signature response
+    formData.append('signature', signatureData.signature);
+    formData.append('timestamp', String(signatureData.timestamp));
+    formData.append('api_key', signatureData.apiKey);
+    formData.append('folder', signatureData.folder);
+    formData.append('upload_preset', signatureData.uploadPreset);
     
-
+    // Build the upload URL with the cloud name
+    const uploadUrl = `https://api.cloudinary.com/v1_1/${signatureData.cloudName}/image/upload`;
     
     // Upload to Cloudinary using fetch
-    const uploadResponse = await fetch(CLOUDINARY_UPLOAD_URL, {
+    const uploadResponse = await fetch(uploadUrl, {
       method: 'POST',
       body: formData,
       headers: {
@@ -65,11 +64,10 @@ export const uploadImage = async (localUri: string): Promise<string> => {
       },
     });
     
-  
     const uploadResult = await uploadResponse.json();
     
     if (uploadResponse.ok) {
-          return uploadResult.secure_url;
+      return uploadResult.secure_url;
     } else {
       console.error('Upload failed:', uploadResult.error);
       throw new Error(uploadResult.error?.message || 'Upload failed');
@@ -78,14 +76,4 @@ export const uploadImage = async (localUri: string): Promise<string> => {
     console.error('Error uploading to Cloudinary:', error);
     throw error;
   }
-};
-
-// Export configuration
-export const cloudinaryConfig = {
-  cloudName: CLOUD_NAME,
-  uploadPreset: UPLOAD_PRESET,
-  uploadUrl: CLOUDINARY_UPLOAD_URL,
-  isConfigured: Boolean(CLOUD_NAME && UPLOAD_PRESET)
-};
-
-export default cloudinaryConfig; 
+}; 

@@ -9,6 +9,7 @@ interface CustomButtonProps {
   textStyles?: string;
   isLoading?: boolean;
   icon?: ReactNode;
+  disabled?: boolean;
 }
 
 const CustomButton = ({

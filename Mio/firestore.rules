@@ -89,5 +89,17 @@ service cloud.firestore {
                        get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants.hasAny([request.auth.uid]);
       }
     }
+
+    // Rules for the reports collection
+    match /reports/{reportId} {
+      // Allow authenticated users to create a report,
+      // ensuring the reporterUserId in the document matches their own UID.
+      allow create: if request.auth != null &&
+                       request.resource.data.reporterUserId == request.auth.uid;
+
+      // Allow only the specified admin email to read, update, or delete reports.
+      allow read, update, delete: if request.auth != null &&
+                                      request.auth.token.email == 'oitijya2002@gmail.com';
+    }
   }
 } 

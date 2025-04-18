@@ -11,7 +11,8 @@ import {
   Animated,
   FlatList,
   Modal,
-  Alert
+  Alert,
+  ScrollView
 } from 'react-native';
 import { router } from 'expo-router';
 import { useMatch } from '../../context/MatchContext';
@@ -19,6 +20,7 @@ import { useFavorites } from '../../context/FavoritesContext';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/Colors';
 import { LinearGradient } from 'expo-linear-gradient';
+import { MatchData } from '../../types/match';
 
 
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,23 +30,22 @@ const CARD_WIDTH = width * 0.85;
 const CARD_HEIGHT = CARD_WIDTH * 1.3;
 
 interface MatchCardProps {
-  match: {
-    userId: string;
-    displayName: string;
-    profilePic: string;
-    matchLevel: string;
-    commonShowIds: string[];
-    age?: number | string;
-    location?: string;
-    gender?: string;
-    matchTimestamp?: any; // Add timestamp for when the match occurred
-  };
+  match: MatchData;
   onPress: () => void;
   onUnmatch: (userId: string) => Promise<boolean>;
 }
 
 const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
   const [isUnmatching, setIsUnmatching] = useState(false);
+  
+  // Import styles from the parent component
+  const { matchCard, imageContainer, blurContainer, matchImage, matchGradient, 
+          matchBadge, superMatchBadge, regularMatchBadge, matchBadgeText, 
+          unlockTimerContainer, unlockTimerText, unmatchButton, unmatchButtonDisabled,
+          matchInfoContainer, matchName, matchLocation } = styles;
+  
+  // Add debugging
+
   
   const confirmUnmatch = () => {
     Alert.alert(
@@ -73,10 +74,7 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
   const isNewMatch = () => {
     if (!match.matchTimestamp) return false;
     
-    // Convert Firestore timestamp to Date if necessary
-    const matchDate = match.matchTimestamp.toDate ? 
-      match.matchTimestamp.toDate() : 
-      new Date(match.matchTimestamp);
+    const matchDate = match.matchTimestamp.toDate();
     
     const now = new Date();
     const timeDiff = now.getTime() - matchDate.getTime();
@@ -89,57 +87,58 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
 
   return (
     <TouchableOpacity
-      style={styles.matchCard}
+      style={[matchCard, {borderWidth: 1, borderColor: '#ddd'}]} // Use local variable reference
       activeOpacity={0.9}
       onPress={onPress}
     >
-      <View style={styles.imageContainer}>
+      <View style={imageContainer}>
         {shouldBlurImage ? (
-          <View style={styles.blurContainer}>
+          <View style={blurContainer}>
             <Image
               source={{ uri: match.profilePic || 'https://via.placeholder.com/400x600?text=No+Image' }}
-              style={[styles.matchImage]}
+              style={[matchImage]}
               blurRadius={40}
             />
           </View>
         ) : (
           <Image
             source={{ uri: match.profilePic || 'https://via.placeholder.com/400x600?text=No+Image' }}
-            style={styles.matchImage}
+            style={matchImage}
+            onError={() => console.log(`[match.tsx] Image failed to load for ${match.displayName}`)}
           />
         )}
       </View>
       
       <LinearGradient
         colors={['transparent', 'rgba(0,0,0,0.8)']}
-        style={styles.matchGradient}
+        style={matchGradient}
       />
       
       {/* Match Level Badge */}
       <View style={[
-        styles.matchBadge,
-        match.matchLevel === 'superMatch' ? styles.superMatchBadge : styles.regularMatchBadge
+        matchBadge,
+        match.matchLevel === 'superMatch' ? superMatchBadge : regularMatchBadge
       ]}>
         <Ionicons 
           name={match.matchLevel === 'superMatch' ? 'star' : 'heart'} 
           size={16} 
           color="#FFF" 
         />
-        <Text style={styles.matchBadgeText}>
+        <Text style={matchBadgeText}>
           {match.matchLevel === 'superMatch' ? 'Super Match!' : 'Match!'}
         </Text>
       </View>
       
       {/* Unlock timer text */}
       {shouldBlurImage && (
-        <View style={styles.unlockTimerContainer}>
-          <Text style={styles.unlockTimerText}>Unlocks after 24h of matching</Text>
+        <View style={unlockTimerContainer}>
+          <Text style={unlockTimerText}>Unlocks after 24h of matching</Text>
         </View>
       )}
       
       {/* Unmatch Button */}
       <TouchableOpacity 
-        style={[styles.unmatchButton, isUnmatching && styles.unmatchButtonDisabled]}
+        style={[unmatchButton, isUnmatching && unmatchButtonDisabled]}
         onPress={confirmUnmatch}
         disabled={isUnmatching}
       >
@@ -150,20 +149,14 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, onPress, onUnmatch }) => {
         )}
       </TouchableOpacity>
       
-      <View style={styles.matchInfoContainer}>
-        <Text style={styles.matchName}>
-          {match.displayName}, {match.age || '?'}
+      <View style={matchInfoContainer}>
+        <Text style={matchName}>
+          {String(match.displayName || '')}{match.age ? `, ${String(match.age)}` : ''}
         </Text>
         
-        <Text style={styles.matchLocation}>
-          {match.location || 'Unknown location'}
+        <Text style={matchLocation}>
+          {String(match.location || 'Unknown location')}
         </Text>
-        
-        <View style={styles.commonShowsContainer}>
-          <Text style={styles.commonShowsText}>
-            {match.commonShowIds.length} shows in common
-          </Text>
-        </View>
       </View>
     </TouchableOpacity>
   );
@@ -176,12 +169,13 @@ export default function MatchScreen() {
     cooldownEndTime, 
     searchMatches, 
     remainingTimeString,
-   
     isLoading,
     error,
     unmatchUser,
-   
   } = useMatch();
+  
+  // Log cooldown state changes whenever they happen
+  
   
   const { userFavorites } = useFavorites();
   const [noFavorites, setNoFavorites] = useState(false);
@@ -190,9 +184,10 @@ export default function MatchScreen() {
   const [showResultModal, setShowResultModal] = useState(false);
   const [matchesBeforeSearch, setMatchesBeforeSearch] = useState(0);
   
-  // Animation values
-  const fadeAnim = useState(new Animated.Value(0))[0];
-  const scaleAnim = useState(new Animated.Value(0.9))[0];
+  // Animation values - ENSURE PROPER INITIALIZATION
+  // Use direct creation instead of useState to ensure stable references
+  const fadeAnim = new Animated.Value(1);
+  const scaleAnim = new Animated.Value(1);
   
   useEffect(() => {
     // Check if user has favorites
@@ -208,59 +203,70 @@ export default function MatchScreen() {
       setIsFirstLoad(false);
     }
     
-    // Start animation when matches are loaded
+    // Ensure animation happens any time matches change (not just on first load)
     if (matches && matches.length > 0) {
+      // Reset animation values first to ensure animation runs
+      fadeAnim.setValue(0.3);
+      scaleAnim.setValue(0.95);
+      
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
-          duration: 500,
+          duration: 400,
           useNativeDriver: true,
         }),
         Animated.timing(scaleAnim, {
           toValue: 1,
-          duration: 500,
+          duration: 400,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(() => {
+        
+      });
     }
-  }, [matches]);
+  }, [matches, fadeAnim, scaleAnim]);
   
   const handleSearch = async () => {
-    // Reset animation values
-    fadeAnim.setValue(0);
-    scaleAnim.setValue(0.9);
+
+    
+    // Reset animation values for a smooth transition
+    fadeAnim.setValue(0.5);
+    scaleAnim.setValue(0.95);
     
     // Store the current match count to calculate new matches later
     const currentMatchCount = matches.length;
     setMatchesBeforeSearch(currentMatchCount);
     
-    
     try {
       // Search for matches - the useEffect will handle showing notifications
-      await searchMatches();
+      const newMatchesCount = await searchMatches();
+      console.log(`[COOLDOWN] Search completed with ${newMatchesCount} new matches`);
+      console.log(`[COOLDOWN] After search - cooldownEndTime: ${cooldownEndTime ? cooldownEndTime.toISOString() : 'null'}`);
+      
+      // Force check cooldown again after a small delay to ensure context has updated
+      setTimeout(() => {
+        console.log(`[COOLDOWN] Delayed check - cooldownEndTime: ${cooldownEndTime ? cooldownEndTime.toISOString() : 'null'}`);
+      }, 500);
     } catch (error) {
-    console.error('Error in handleSearch:', error);
+      console.error('[COOLDOWN] Error in handleSearch:', error);
     }
   };
   
-  const navigateToUserProfile = (match: any) => {
+  const navigateToUserProfile = (match: MatchData) => {
     router.push({
       pathname: '/(common)/userProfile',
       params: {
         userId: match.userId,
         matchLevel: match.matchLevel,
-        commonShows: match.commonShowIds.join(','),
         favoriteShows: match.favoriteShowIds ? match.favoriteShowIds.join(',') : '',
-        matchTimestamp: match.matchTimestamp ? match.matchTimestamp.toDate ? match.matchTimestamp.toDate().toISOString() : match.matchTimestamp.toString() : ''
+        matchTimestamp: match.matchTimestamp ? match.matchTimestamp.toDate().toISOString() : ''
       }
     });
   };
   
   const handleUnmatch = async (userId: string) => {
     try {
-    
       await unmatchUser(userId);
-    
       return true;
     } catch (error) {
       console.error('Error in handleUnmatch:', error);
@@ -279,7 +285,6 @@ export default function MatchScreen() {
     if (isSearching === false && matchesBeforeSearch > 0) {
       // Calculate new matches after search completes
       const newMatches = matches.length - matchesBeforeSearch;
-
       
       if (newMatches !== newMatchCount) {
         setNewMatchCount(newMatches);
@@ -406,39 +411,41 @@ export default function MatchScreen() {
       );
     }
     
-    if (isFirstLoad) {
-      return (
-        <View style={styles.emptyStateContainer}>
-          <Ionicons name="people-outline" size={100} color={COLORS.secondary} />
-          <Text style={styles.emptyStateTitle}>Find Your Matches</Text>
-          <Text style={styles.emptyStateText}>
-            Connect with others who share your taste in shows!
-          </Text>
-          <TouchableOpacity
-            style={styles.searchButton}
-            onPress={handleSearch}
-            disabled={isSearching || !!cooldownEndTime}
-          >
-            <Text style={styles.searchButtonText}>Search Matches</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-    
-  return (
+    // Consolidated state for when no matches are available to be shown
+    // This covers: First load, no matches found ever, or all matches are in chat.
+    return (
       <View style={styles.emptyStateContainer}>
         <Ionicons name="search-outline" size={100} color={COLORS.secondary} />
-        <Text style={styles.emptyStateTitle}>No Matches Found</Text>
-        <Text style={styles.emptyStateText}>
-          We couldn't find anyone with similar show preferences right now. Try again later!
+        <Text style={styles.emptyStateTitle}>
+          {isFirstLoad ? "Find Your Matches" : "No Matches to Show"}
         </Text>
-        </View>
+        <Text style={styles.emptyStateText}>
+          {isFirstLoad
+            ? "Search to connect with others who share your taste!"
+            : "Update your favorites list or search again to find new matches."
+          }
+        </Text>
+        <TouchableOpacity
+          style={[
+            styles.searchButton,
+            (isSearching || !!cooldownEndTime || noFavorites) && styles.searchButtonDisabled
+          ]}
+          onPress={handleSearch}
+          disabled={isSearching || !!cooldownEndTime || noFavorites}
+        >
+          <Text style={styles.searchButtonText}>Search Matches</Text>
+        </TouchableOpacity>
+      </View>
     );
   };
   
   const renderCooldownTimer = () => {
-    if (!cooldownEndTime) return null;
+    if (!cooldownEndTime) {
+      console.log('[COOLDOWN] No cooldown timer to render (cooldownEndTime is null)');
+      return null;
+    }
     
+    console.log(`[COOLDOWN] Rendering cooldown timer with remaining time: ${remainingTimeString}`);
     return (
       <View style={styles.cooldownContainer}>
         <Ionicons name="time-outline" size={20} color={COLORS.secondary} />
@@ -450,53 +457,40 @@ export default function MatchScreen() {
   };
   
   const renderMatchList = () => {
-    if (!matches || matches.length === 0) {
-      return renderEmptyState();
-    }
-    
     // Filter out matches that have chattingWith set to true
     const availableMatches = matches.filter(match => !match.chattingWith);
     
+    // If no matches are available to display (either none exist or all are chatting),
+    // show the consolidated empty state.
     if (availableMatches.length === 0) {
+      return renderEmptyState(); 
+    }
+    
+    // SIMPLE RENDERING WITH SCROLLING SUPPORT
+    if (availableMatches.length > 0) {
+      // Use this approach to prevent text leaking into View components
+      const matchCards = availableMatches.map(item => (
+        <MatchCard 
+          key={item.userId}
+          match={item} 
+          onPress={() => navigateToUserProfile(item)}
+          onUnmatch={handleUnmatch}
+        />
+      ));
+      
       return (
-        <View style={styles.emptyStateContainer}>
-          <Ionicons name="chatbubble-outline" size={100} color={COLORS.secondary} />
-          <Text style={styles.emptyStateTitle}>All Matches in Chat</Text>
-          <Text style={styles.emptyStateText}>
-            All your matches have started conversations. Check your inbox to continue chatting!
-          </Text>
-          <TouchableOpacity
-            style={styles.exploreButton}
-            onPress={() => router.push('/(tabs)/inbox')}
-          >
-            <Text style={styles.exploreButtonText}>Go to Inbox</Text>
-          </TouchableOpacity>
-        </View>
+        <ScrollView 
+          contentContainerStyle={{padding: 20}}
+          showsVerticalScrollIndicator={true}
+        >
+          {matchCards}
+          <View style={{height: 40}} />
+        </ScrollView>
       );
     }
     
-    return (
-      <FlatList
-        data={availableMatches}
-        keyExtractor={(item) => item.userId}
-        renderItem={({ item }) => (
-          <Animated.View
-            style={{
-              opacity: fadeAnim,
-              transform: [{ scale: scaleAnim }],
-            }}
-          >
-            <MatchCard 
-              match={item} 
-              onPress={() => navigateToUserProfile(item)}
-              onUnmatch={handleUnmatch}
-            />
-          </Animated.View>
-        )}
-        contentContainerStyle={styles.matchList}
-        showsVerticalScrollIndicator={false}
-      />
-    );
+    // If we somehow get here, show empty state as fallback
+    return renderEmptyState();
   };
   
   return (
@@ -528,7 +522,9 @@ export default function MatchScreen() {
       {renderCooldownTimer()}
       
       <View style={styles.contentContainer}>
-        {renderMatchList()}
+        <View style={{ flex: 1, backgroundColor: "#f8f8f8" }}>
+          {renderMatchList()}
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -672,18 +668,6 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 2,
-  },
-  commonShowsContainer: {
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  commonShowsText: {
-    color: '#FFF',
-    fontWeight: '500',
-    fontSize: 14,
   },
   emptyStateContainer: {
     flex: 1,

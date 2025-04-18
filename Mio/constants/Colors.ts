@@ -37,11 +37,13 @@ export const COLORS = {
   darkestMaroon: '#6d1315',
   white: '#FFFFFF',
   black: '#000000',
-  error: '#FF5555',
-  success: '#55DD55',
+  error: '#a60c0c',
+  success: '#28a745',
+  warning: '#FFA500',
   gradient: {
     darkPink: '#f3d8df',
-    lightPink: '#faebee'
+    lightPink: '#faebee',
+    start: '#8B0000'
   },
   text: {
     primary: '#333333',

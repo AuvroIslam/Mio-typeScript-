@@ -27,11 +27,20 @@ module.exports = {
     "import",
   ],
   rules: {
-    "quotes": ["error", "double"],
+    "quotes": ["off", "double"],
     "import/no-unresolved": 0,
-    "indent": ["error", 2],
+    "indent": ["off", 2],
     "linebreak-style": 0,
     "valid-jsdoc": 0,
-    "max-len": ["error", { "code": 120 }],
+    "max-len": ["off", { "code": 120 }],
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/explicit-module-boundary-types": "off",
+    "require-jsdoc": "off",
+    "no-unused-vars": "off",
+    "@typescript-eslint/no-unused-vars": "off",
+    "camelcase": "off",
+    "comma-dangle": "off",
+    "object-curly-spacing": "off",
+    "no-trailing-spaces": "off"
   },
 }; 

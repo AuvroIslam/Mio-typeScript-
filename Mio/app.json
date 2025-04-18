@@ -2,7 +2,7 @@
   "expo": {
     "name": "Mio",
     "slug": "Mio",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/finallogo.png",
     "scheme": "myapp",
@@ -27,7 +27,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.mioapp.social",
-      "versionCode": 1,
+      "versionCode": 3,
       "permissions": [
         "INTERNET",
         "READ_EXTERNAL_STORAGE",
@@ -35,23 +35,25 @@
         "INTERNET",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE"
-      ]
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/finallogo.png"
     },
-    "plugins": [
-      "expo-router",
+    "plugins": 
+     
       [
-        "@react-native-google-signin/google-signin",
-        {
-          "iosUrlScheme": "com.googleusercontent.apps._some_id_here_"
-        }
-      ],
-      "expo-splash-screen"
-    ],
+        "expo-router", "@react-native-google-signin/google-signin","expo-splash-screen",
+        "@react-native-firebase/app",
+        "@react-native-firebase/auth",
+        "@react-native-firebase/firestore",
+        "@react-native-firebase/storage"
+      ]
+      
+    ,
     "experiments": {
       "typedRoutes": true
     },
@@ -63,7 +65,7 @@
         "projectId": "867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"
       }
     },
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": "1.0.1",
     "owner": "auvro2002",
     "updates": {
       "url": "https://u.expo.dev/867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"

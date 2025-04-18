@@ -39,6 +39,7 @@ const RootLayout = () => {
   });
 
   // Check for updates when the app starts
+  /* // Comment out for Closed Testing
   useEffect(() => {
     const checkForUpdates = async () => {
       try {
@@ -61,6 +62,7 @@ const RootLayout = () => {
 
     checkForUpdates();
   }, []);
+  */ // End comment out for Closed Testing
 
   useEffect(() => {
     if (error) throw error;

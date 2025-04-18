@@ -11,7 +11,8 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
-  StatusBar
+  StatusBar,
+  Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +23,15 @@ import { db } from '../../config/firebaseConfig';
 import { COLORS } from '../../constants/Colors';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
+import { uploadImage } from '../../config/cloudinaryConfig';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import Toast from 'react-native-toast-message';
+
+// Define interface for function result data
+interface DeleteAccountResult {
+  success: boolean;
+  message?: string;
+}
 
 const { width, height } = Dimensions.get('window');
 const MAX_BIO_LENGTH = 150;
@@ -44,7 +54,7 @@ interface ProfileFormData {
 }
 
 export default function EditProfileScreen() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [profileData, setProfileData] = useState<ProfileFormData>({
@@ -67,6 +77,11 @@ export default function EditProfileScreen() {
   // For profile picture upload
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
   const [additionalPics, setAdditionalPics] = useState<string[]>([]);
+  
+  // For Delete Account Modal
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false); // Separate loading state for deletion
   
   // Fetch current profile data
   useEffect(() => {
@@ -122,16 +137,26 @@ export default function EditProfileScreen() {
       });
       
       if (!result.canceled && result.assets && result.assets[0].uri) {
-        // TODO: Upload image to cloud storage (Firebase Storage, Cloudinary, etc.)
-        // For now, we'll just set the local URI
-        setProfilePicUrl(result.assets[0].uri);
-        setProfileData(prev => ({
-          ...prev,
-          profilePic: result.assets[0].uri
-        }));
-        
-        // Haptic feedback
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setIsLoading(true);
+        try {
+          // Upload image to Cloudinary and get secure URL
+          const cloudinaryUrl = await uploadImage(result.assets[0].uri);
+          
+          // Set the Cloudinary URL in state
+          setProfilePicUrl(cloudinaryUrl);
+          setProfileData(prev => ({
+            ...prev,
+            profilePic: cloudinaryUrl
+          }));
+          
+          // Haptic feedback
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (error) {
+          console.error('Error uploading image:', error);
+          Alert.alert('Error', 'Failed to upload image to Cloudinary');
+        } finally {
+          setIsLoading(false);
+        }
       }
     } catch (error) {
       console.error('Error selecting image:', error);
@@ -160,17 +185,28 @@ export default function EditProfileScreen() {
       });
       
       if (!result.canceled && result.assets && result.assets[0].uri) {
-        // Add new pic
-        const newPics = [...additionalPics, result.assets[0].uri];
-        
-        setAdditionalPics(newPics);
-        setProfileData(prev => ({
-          ...prev,
-          additionalPics: newPics
-        }));
-        
-        // Haptic feedback
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setIsLoading(true);
+        try {
+          // Upload image to Cloudinary and get secure URL
+          const cloudinaryUrl = await uploadImage(result.assets[0].uri);
+          
+          // Add new pic using Cloudinary URL
+          const newPics = [...additionalPics, cloudinaryUrl];
+          
+          setAdditionalPics(newPics);
+          setProfileData(prev => ({
+            ...prev,
+            additionalPics: newPics
+          }));
+          
+          // Haptic feedback
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        } catch (error) {
+          console.error('Error uploading image:', error);
+          Alert.alert('Error', 'Failed to upload image to Cloudinary');
+        } finally {
+          setIsLoading(false);
+        }
       }
     } catch (error) {
       console.error('Error selecting image:', error);
@@ -280,6 +316,53 @@ export default function EditProfileScreen() {
     } finally {
       setIsSaving(false);
     }
+  };
+  
+  // Handle delete account confirmation and trigger cloud function
+  const handleConfirmDelete = async () => {
+    if (!user || deleteConfirmationText !== 'DELETE') return;
+
+    setIsDeleting(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+    try {
+      // Call Firebase Function to delete user data and auth account
+      const functionsInstance = getFunctions();
+      const deleteUserAccount = httpsCallable<any, DeleteAccountResult>(functionsInstance, 'deleteUserAccount');
+      const result = await deleteUserAccount();
+
+      if (result.data.success) {
+        // Clear sensitive local data if any (optional)
+        // await AsyncStorage.removeItem('some_local_key'); 
+
+        // Logout the user locally
+        await logout(); // Call logout from useAuth
+
+        // Show success toast
+        Toast.show({
+          type: 'success',
+          text1: 'Account Deleted',
+          text2: 'Your account and data have been successfully deleted.',
+          position: 'bottom',
+          visibilityTime: 4000,
+        });
+
+        // Navigate to the root screen after a short delay to allow toast to show
+        setTimeout(() => {
+          router.replace('/'); // Navigate to index.tsx
+        }, 500);
+
+      } else {
+        throw new Error(result.data.message || 'Failed to delete account from server.');
+      }
+
+    } catch (error: any) {
+      console.error('Error deleting user account:', error);
+      Alert.alert('Error', error.message || 'Failed to delete account. Please try again.');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      setIsDeleting(false); // Reset loading state only on error, success handles navigation
+    } 
+    // No finally block to reset isDeleting here, as success navigates away.
   };
   
   if (isLoading) {
@@ -699,6 +782,69 @@ export default function EditProfileScreen() {
             </>
           )}
         </TouchableOpacity>
+
+        {/* Delete Account Button */}
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => setIsDeleteModalVisible(true)}
+          disabled={isSaving || isDeleting}
+        >
+          <Ionicons name="trash-outline" size={20} color={COLORS.error} style={styles.deleteButtonIcon} />
+          <Text style={styles.deleteButtonText}>Delete Account</Text>
+        </TouchableOpacity>
+
+        {/* Delete Confirmation Modal */}
+        <Modal
+          visible={isDeleteModalVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => !isDeleting && setIsDeleteModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Delete Account?</Text>
+              <Text style={styles.modalText}>
+                This action is permanent and cannot be undone. All your profile data, matches, and conversations will be deleted.
+              </Text>
+              <Text style={styles.modalPrompt}>
+                To confirm, please type "DELETE" below:
+              </Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="DELETE"
+                placeholderTextColor="#AAA"
+                value={deleteConfirmationText}
+                onChangeText={setDeleteConfirmationText}
+                autoCapitalize="none"
+                editable={!isDeleting}
+              />
+              <View style={styles.modalButtonContainer}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton]}
+                  onPress={() => setIsDeleteModalVisible(false)}
+                  disabled={isDeleting}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.modalButton,
+                    styles.confirmDeleteButton,
+                    (deleteConfirmationText !== 'DELETE' || isDeleting) && styles.disabledButton
+                  ]}
+                  onPress={handleConfirmDelete}
+                  disabled={deleteConfirmationText !== 'DELETE' || isDeleting}
+                >
+                  {isDeleting ? (
+                    <ActivityIndicator size="small" color="#FFF" />
+                  ) : (
+                    <Text style={styles.confirmDeleteButtonText}>Confirm Delete</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -956,5 +1102,98 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 18,
     fontWeight: '600',
+  },
+  deleteButton: {
+    backgroundColor: 'white',
+    marginHorizontal: 16,
+    marginBottom: 40,
+    height: 56,
+    borderRadius: 28,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.error,
+  },
+  deleteButtonIcon: {
+    marginRight: 8,
+  },
+  deleteButtonText: {
+    color: COLORS.error,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 12,
+    width: '80%',
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: COLORS.secondary,
+    marginBottom: 16,
+  },
+  modalText: {
+    color: '#333',
+    marginBottom: 16,
+  },
+  modalPrompt: {
+    color: '#888',
+    marginBottom: 16,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+  },
+  modalButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  modalButton: {
+    flex: 1,
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    marginHorizontal: 5,
+    
+  },
+  cancelButton: {
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: COLORS.error,
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    color: COLORS.error,
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  confirmDeleteButton: {
+    backgroundColor: COLORS.error,
+    borderRadius: 8,
+    padding: 10,
+    
+  },
+  confirmDeleteButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  disabledButton: {
+    backgroundColor: '#CCC',
   },
 }); 

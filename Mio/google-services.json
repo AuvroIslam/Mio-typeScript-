@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "923851288668",
+    "project_id": "mio-deployment",
+    "storage_bucket": "mio-deployment.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:923851288668:android:0c349019eb5a33e559b699",
+        "android_client_info": {
+          "package_name": "com.mioapp.social"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "923851288668-grrn9o54jfdgh6gup9jconkvfh6nd6l0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mioapp.social",
+            "certificate_hash": "49c8c04a5a19b271eef7acc7e38d99d199c4c099"
+          }
+        },
+        {
+          "client_id": "923851288668-j7hfv34lfvfjd17fqs9gug3ahtr9hu78.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCPWlUSvSxmYWhrBiZ7MDdrLToHgZuupiM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "923851288668-j7hfv34lfvfjd17fqs9gug3ahtr9hu78.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

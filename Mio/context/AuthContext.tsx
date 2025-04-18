@@ -11,6 +11,7 @@ import {
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebaseConfig';
 import { Loader } from '../components';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 interface User {
   uid: string;
@@ -31,6 +32,7 @@ interface AuthContextType {
   sendVerification: () => Promise<void>;
   refreshUserState: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  checkAdminStatus: () => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -55,8 +57,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const userDoc = await getDoc(userRef);
       const hasProfile = userDoc.exists() && userDoc.data().profileCompleted;
       
-      // Check if user is an admin (based on email from environment variable)
-      const isAdmin = firebaseUser.email === process.env.EXPO_PUBLIC_ADMIN_EMAIL;
+      // Get custom claims to check admin status
+      const token = await firebaseUser.getIdTokenResult();
+      const isAdmin = token.claims?.admin === true;
 
       setUser({
         uid: firebaseUser.uid,
@@ -175,6 +178,28 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
+  // Add a function to verify admin status via cloud function
+  const checkAdminStatus = useCallback(async () => {
+    if (auth.currentUser) {
+      try {
+        const functions = getFunctions();
+        const checkAdmin = httpsCallable(functions, 'checkAdminStatus');
+        const result = await checkAdmin();
+        
+        // Update user state with admin status
+        if (user) {
+          setUser({ ...user, isAdmin: result.data as boolean });
+        }
+        
+        return result.data as boolean;
+      } catch (error) {
+        console.error("Error checking admin status:", error);
+        return false;
+      }
+    }
+    return false;
+  }, [user]);
+
   const value = useMemo(() => ({
     user,
     isLoading,
@@ -184,8 +209,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setUserHasProfile,
     sendVerification,
     refreshUserState,
-    resetPassword
-  }), [user, isLoading, signIn, signUp, logout, setUserHasProfile, sendVerification, refreshUserState, resetPassword]);
+    resetPassword,
+    checkAdminStatus
+  }), [user, isLoading, signIn, signUp, logout, setUserHasProfile, sendVerification, refreshUserState, resetPassword, checkAdminStatus]);
 
   return (
     <AuthContext.Provider value={value}>

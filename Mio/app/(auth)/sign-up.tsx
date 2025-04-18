@@ -16,7 +16,13 @@ import { useAuth } from '../../context/AuthContext';
 import Toast from 'react-native-toast-message';
 import {  COLORS } from '../../constants/Colors';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Checkbox from 'expo-checkbox';
+import * as WebBrowser from 'expo-web-browser';
 
+// --- Policy URLs ---
+const TERMS_CONDITIONS_URL = 'https://docs.google.com/document/d/1uivocBIPTs2IFSZ9JDDsVx8G80iPynbCuocj_U0b_yk/edit?usp=sharing';
+const PRIVACY_POLICY_URL = 'https://docs.google.com/document/d/18Z08VkX1NXDC0Vvlli8v33_ETFSBMV77m3AcbRqMFQ8/edit?usp=sharing';
+// -------------------
 
 const SignUp = () => {
   const router = useRouter();
@@ -25,12 +31,14 @@ const SignUp = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [agreedToPolicies, setAgreedToPolicies] = useState(false);
   const [processingAuth, setProcessingAuth] = useState(false);
   const [registrationReady, setRegistrationReady] = useState(false);
   const [errors, setErrors] = useState({ 
     email: '', 
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    policies: ''
   });
 
   // Handle redirection to email verification after successful signup
@@ -49,7 +57,8 @@ const SignUp = () => {
     const newErrors = { 
       email: '', 
       password: '',
-      confirmPassword: ''
+      confirmPassword: '',
+      policies: ''
     };
 
     if (!email) {
@@ -73,6 +82,11 @@ const SignUp = () => {
       valid = false;
     } else if (password !== confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
+      valid = false;
+    }
+
+    if (!agreedToPolicies) {
+      newErrors.policies = 'You must agree to the terms and privacy policy.';
       valid = false;
     }
 
@@ -108,6 +122,9 @@ const SignUp = () => {
           text2: errors.confirmPassword,
           position: 'bottom'
         });
+        return;
+      }
+      if (!agreedToPolicies) {
         return;
       }
       return;
@@ -226,10 +243,37 @@ const SignUp = () => {
                 error={errors.confirmPassword}
               />
 
+              <View style={styles.checkboxContainer}>
+                <Checkbox
+                  value={agreedToPolicies}
+                  onValueChange={setAgreedToPolicies}
+                  color={agreedToPolicies ? COLORS.secondary : undefined}
+                  style={styles.checkbox}
+                />
+                <Text style={styles.checkboxLabel}>
+                  I agree to the{' '}
+                  <Text 
+                    style={styles.linkText} 
+                    onPress={() => WebBrowser.openBrowserAsync(TERMS_CONDITIONS_URL)}
+                  >
+                    Terms & Conditions
+                  </Text>
+                  {' '}&{' '}
+                  <Text 
+                    style={styles.linkText} 
+                    onPress={() => WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL)}
+                  >
+                    Privacy Policy
+                  </Text>.
+                </Text>
+              </View>
+              {errors.policies ? <Text style={styles.errorText}>{errors.policies}</Text> : null}
+
               <CustomButton
                 title="Sign Up"
                 handlePress={handleSignUp}
                 containerStyles="mt-4 self-center"
+                disabled={!agreedToPolicies}
               />
 
               <View style={styles.signinContainer}>
@@ -288,7 +332,7 @@ const styles = StyleSheet.create({
   signinContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 20,
+    marginTop: 12,
   },
   signinText: {
     color: '#666',
@@ -296,6 +340,38 @@ const styles = StyleSheet.create({
   signinLink: {
     color: COLORS.maroon,
     fontWeight: 'bold',
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    marginBottom: 5,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  checkbox: {
+    marginLeft: 10,
+    marginRight: 8,
+    width: 14,
+    height: 14,
+    borderColor: COLORS.maroon,
+  },
+  checkboxLabel: {
+    flex: 1,
+    fontSize: 10,
+    color: '#555',
+    lineHeight: 15,
+  },
+  linkText: {
+    color: COLORS.maroon,
+    textDecorationLine: 'underline',
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 12,
+    marginLeft: 30,
+    marginBottom: 10,
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
 });
 

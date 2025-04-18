@@ -24,9 +24,16 @@ import { COLORS } from '../../constants/Colors';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import * as WebBrowser from 'expo-web-browser';
 
-import icon from '../../assets/images/icon.png';
+
 import { useFavorites } from '../../context/FavoritesContext';
+import { tmdbApi } from '../../utils/tmdbApi';
+
+// --- Policy URLs ---
+const TERMS_CONDITIONS_URL = 'https://docs.google.com/document/d/1uivocBIPTs2IFSZ9JDDsVx8G80iPynbCuocj_U0b_yk/edit?usp=sharing';
+const PRIVACY_POLICY_URL = 'https://docs.google.com/document/d/18Z08VkX1NXDC0Vvlli8v33_ETFSBMV77m3AcbRqMFQ8/edit?usp=sharing';
+// -------------------
 
 const { width, height } = Dimensions.get('window');
 
@@ -65,18 +72,7 @@ interface ShowItem {
 }
 
 // Loading placeholder for show posters
-const PlaceholderImage = ({ type }: { type: 'anime' | 'kdrama' }) => (
-  <View style={styles.placeholderContainer}>
-    <Image 
-      source={icon} 
-      style={styles.placeholderImage}
-      resizeMode="contain"
-    />
-    <Text style={styles.placeholderText}>
-      {type === 'anime' ? 'No Anime Selected' : 'No K-Drama Selected'}
-    </Text>
-  </View>
-);
+
 
 // Modal for confirmation and feedback
 const FeedbackModal = ({ 
@@ -140,16 +136,22 @@ const FeedbackModal = ({
   );
 };
 
+// Add a helper function to capitalize the first letter of a string
+const capitalizeFirstLetter = (string: string | undefined): string => {
+  if (!string) return 'Not specified';
+  return string.charAt(0).toUpperCase() + string.slice(1);
+};
+
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const { 
     userFavorites, 
-    cooldownTimer, 
+    cooldownTimer,
     removalCount, 
+    formattedCooldownString,
     confirmRemoveFromFavorites,
-  
     getTotalFavorites,
-    
+    getRemainingRemovals,
   } = useFavorites();
   
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -211,40 +213,24 @@ export default function ProfileScreen() {
     fetchUserProfile();
   }, [user, userFavorites, removalCount, forceUpdate]);
 
-  // Fetch show details from TMDB using context favorites
+  // Fetch show details from TMDB using context favorites and the secure utility
   const fetchShowDetails = async () => {
-    const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY || '';
     let shows: {[key: string]: ShowItem} = {};
-    
+
     try {
-      // Check if API key is available
-      if (!TMDB_API_KEY) {
-        throw new Error('TMDB API key is not configured');
-      }
-      
-      // Fetch show details
       if (userFavorites.shows && userFavorites.shows.length > 0) {
         await Promise.all(userFavorites.shows.map(async (id) => {
           try {
-            const response = await fetch(
-              `https://api.themoviedb.org/3/tv/${id}?api_key=${TMDB_API_KEY}&language=en-US`
-            );
-            
-            if (!response.ok) {
-              throw new Error(`API request failed with status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
+            // Fetch using tmdbApi
+            const data = await tmdbApi.getShowDetails(parseInt(id, 10));
+
             if (data && data.name) {
-              // Determine if it's anime or kdrama based on genres or origin country
-              // This is a simple heuristic - you may want to improve this logic
-              const isAnime = data.genres?.some((genre: any) => 
-                genre.name.toLowerCase().includes('animation')) || 
-                data.origin_country?.includes('JP');
-              
+              // Simple classification
+              const isAnime = data.genres?.some((genre: any) =>
+                genre.name.toLowerCase().includes('animation')) ||
+                data.origin_country?.includes('JP') || data.original_language === 'ja';
               const type: FavoriteType = isAnime ? 'anime' : 'kdrama';
-              
+
               shows[`${id}`] = {
                 id: data.id,
                 title: data.name,
@@ -255,11 +241,9 @@ export default function ProfileScreen() {
             }
           } catch (error) {
             console.error(`Error fetching show ${id}:`, error);
-            // Continue with other shows even if one fails
           }
         }));
       }
-      
       setFavoriteShows(shows);
     } catch (error) {
       console.error('Error fetching show details:', error);
@@ -419,7 +403,10 @@ export default function ProfileScreen() {
   const headerImage = (
     <View style={styles.imageContainer}>
       <Image 
-        source={{ uri: profile.profilePic }} 
+        source={{ uri: profile.profilePic 
+                    ? profile.profilePic // Assume full Cloudinary URL
+                    : 'https://via.placeholder.com/300x450?text=No+Pic' 
+                }}
         style={styles.profileImage}
       />
       <LinearGradient
@@ -442,17 +429,17 @@ export default function ProfileScreen() {
               <Text style={styles.statLabel}>Favorites</Text>
             </View>
             <View style={styles.profileStat}>
-              <Text style={styles.statValue}>{MAX_WEEKLY_REMOVALS - removalCount}</Text>
+              <Text style={styles.statValue}>{(MAX_WEEKLY_REMOVALS - removalCount).toString()}</Text>
               <Text style={styles.statLabel}>Removals Left</Text>
             </View>
-            {cooldownTimer && cooldownTimer > 0 ? (
+            {formattedCooldownString && formattedCooldownString !== 'Ready' ? (
               <View style={styles.profileStat}>
-                <Text style={styles.statValue}>{formatTime(cooldownTimer)}</Text>
+                <Text style={styles.statValue}>{formattedCooldownString}</Text>
                 <Text style={styles.statLabel}>Cooldown</Text>
               </View>
             ) : (
               <View style={styles.profileStat}>
-                <Text style={styles.statValue}>{MAX_FAVORITES - getTotalFavorites()}</Text>
+                <Text style={styles.statValue}>{(MAX_FAVORITES - getTotalFavorites()).toString()}</Text>
                 <Text style={styles.statLabel}>Slots Left</Text>
               </View>
             )}
@@ -517,7 +504,7 @@ export default function ProfileScreen() {
                 <Ionicons name="heart-circle-outline" size={20} color={COLORS.secondary} />
                 <View style={styles.infoTextContainer}>
                   <Text style={styles.infoLabel}>Relationship Status</Text>
-                  <Text style={styles.infoValue}>{profile.relationshipStatus || 'Not specified'}</Text>
+                  <Text style={styles.infoValue}>{capitalizeFirstLetter(profile.relationshipStatus)}</Text>
                 </View>
               </View>
             </View>
@@ -556,7 +543,8 @@ export default function ProfileScreen() {
                 </View>
               </View>
               
-              {cooldownTimer && cooldownTimer > 0 && (
+              {/* Only show cooldown if the formatted string is not empty/Ready */}
+              {formattedCooldownString && formattedCooldownString !== 'Ready' && (
                 <View style={styles.cooldownContainer}>
                   <View style={styles.cooldownIconContainer}>
                     <Ionicons name="hourglass-outline" size={20} color="#FF6B6B" />
@@ -564,7 +552,7 @@ export default function ProfileScreen() {
                   <View style={styles.cooldownTextContainer}>
                     <Text style={styles.cooldownLabel}>Cooldown Period</Text>
                     <Text style={styles.cooldownValue}>
-                      {formatTime(cooldownTimer)}
+                      {formattedCooldownString}
                     </Text>
                   </View>
                 </View>
@@ -603,7 +591,9 @@ export default function ProfileScreen() {
                             style={styles.favoriteImage}
                           />
                         ) : (
-                          <PlaceholderImage type={show.type} />
+                          <View style={styles.placeholderContainer}>
+                              <Text>No Poster</Text>
+                          </View>
                         )}
                         
                         <View style={styles.favoriteType}>
@@ -708,7 +698,13 @@ export default function ProfileScreen() {
               >
                 {profile.additionalPics.map((photo, index) => (
                   <View key={index} style={styles.photoWrapper}>
-                    <Image source={{ uri: photo }} style={styles.additionalPhoto} />
+                    <Image 
+                      source={{ uri: photo 
+                                ? photo // Assuming full Cloudinary URL
+                                : 'https://via.placeholder.com/200x200?text=No+Photo' 
+                              }}
+                      style={styles.additionalPhoto} 
+                    />
                   </View>
                 ))}
               </ScrollView>
@@ -732,6 +728,23 @@ export default function ProfileScreen() {
               <Ionicons name="log-out-outline" size={22} color="#FFF" />
               <Text style={styles.actionButtonText}>Logout</Text>
             </TouchableOpacity>
+          </View>
+
+          {/* Policy Links */}
+          <View style={styles.policyContainer}>
+            <View style={styles.policyLeft}>
+                <TouchableOpacity onPress={() => WebBrowser.openBrowserAsync(TERMS_CONDITIONS_URL)}>
+                    <Text style={styles.policyLinkText}>Terms & Conditions</Text>
+                </TouchableOpacity>
+            </View>
+            <View style={styles.policySeparatorContainer}>
+                <Text style={styles.policySeparator}>|</Text>
+            </View>
+            <View style={styles.policyRight}>
+                <TouchableOpacity onPress={() => WebBrowser.openBrowserAsync(PRIVACY_POLICY_URL)}>
+                    <Text style={styles.policyLinkText}>Privacy Policy</Text>
+                </TouchableOpacity>
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -1076,12 +1089,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  placeholderImage: {
-    width: '100%',
-    aspectRatio: 2/3,
-    backgroundColor: '#F0F0F0',
-    resizeMode: 'contain',
-  },
   placeholderText: {
     marginTop: 8,
     fontSize: 14,
@@ -1305,5 +1312,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFF',
+  },
+  policyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    paddingHorizontal: 8,
+    width: '100%',
+  },
+  policyLeft: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  policySeparatorContainer: {
+    paddingHorizontal: 8,
+  },
+  policyRight: {
+    flex: 1,
+    alignItems: 'flex-start',
+  },
+  policyLinkText: {
+    fontSize: 10,
+    color: COLORS.maroon,
+    textDecorationLine: 'underline',
+  },
+  policySeparator: {
+    fontSize: 10,
+    color: '#AAA',
   },
 });

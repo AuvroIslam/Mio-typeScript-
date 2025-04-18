@@ -36,7 +36,8 @@ import {
   limit,
   writeBatch,
   increment,
-  startAfter
+  startAfter,
+  addDoc
 } from 'firebase/firestore';
 import { db } from '../../config/firebaseConfig';
 import { 
@@ -259,6 +260,8 @@ export default function ChatScreen() {
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [isScreenLoading, setIsScreenLoading] = useState(false);
+  const [isReportModalVisible, setIsReportModalVisible] = useState(false); // State for report modal
+  const [reportReason, setReportReason] = useState(''); // State for report reason text
   
   // Cache reference
   const cachedConversationId = useRef<string | null>(null);
@@ -631,7 +634,8 @@ export default function ChatScreen() {
     
     if (diffDays === 0) {
       // Today, show time
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      // Explicitly request 12-hour format based on locale preference
+      return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
     } else if (diffDays === 1) {
       // Yesterday
       return 'Yesterday';
@@ -752,6 +756,49 @@ export default function ChatScreen() {
     );
   };
   
+  // Handle Report - Opens the report reason modal
+  const handleReport = () => {
+    setIsMenuVisible(false); // Close menu
+    setIsReportModalVisible(true); // Open report modal
+  };
+
+  // Submit Report to Firestore
+  const submitReport = async () => {
+    if (!user || !otherUser?.id || !reportReason.trim()) {
+      Alert.alert('Error', 'Please enter a reason for the report.');
+      return;
+    }
+
+    setIsScreenLoading(true); // Start loading indicator
+    const reason = reportReason.trim();
+    setReportReason(''); // Clear reason field
+    setIsReportModalVisible(false); // Close report modal
+
+    try {
+      const reportData = {
+        reporterUserId: user.uid,
+        reportedUserId: otherUser.id,
+        reason: reason,
+        timestamp: Timestamp.now(),
+        conversationId: conversation?.id || null, // Optional: Include conversation ID
+        status: 'pending' // Initial status
+      };
+
+      // Write to 'reports' collection
+      await addDoc(collection(db, 'reports'), reportData);
+
+      Alert.alert('Report Submitted', 'Thank you for your report. We will review it shortly.');
+      // Optionally block or unmatch after reporting, or navigate away
+      // For now, just close the modal and stay in the chat
+
+    } catch (error) {
+      console.error("Error submitting report:", error);
+      Alert.alert("Error", "Failed to submit report. Please try again.");
+    } finally {
+      setIsScreenLoading(false); // Stop loading indicator
+    }
+  };
+  
   // Loading state
   if (isLoading) {
     return (
@@ -793,7 +840,6 @@ export default function ChatScreen() {
                   params: { 
                     userId: otherUser.id,
                     matchLevel: matchData.matchLevel,
-                    commonShows: matchData.commonShowIds.join(','),
                     favoriteShows: matchData.favoriteShowIds ? matchData.favoriteShowIds.join(',') : '',
                     matchTimestamp: matchData.matchTimestamp ? 
                       matchData.matchTimestamp.toDate ? 
@@ -943,6 +989,15 @@ export default function ChatScreen() {
               <Ionicons name="ban-outline" size={22} color={COLORS.error} style={styles.menuIcon} />
               <Text style={[styles.menuOptionText, styles.blockOptionText]}>Block User</Text>
             </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity
+              style={styles.menuOption}
+              onPress={handleReport}
+              disabled={isActionLoading}
+            >
+              <Ionicons name="flag-outline" size={22} color={COLORS.warning} style={styles.menuIcon} />
+              <Text style={[styles.menuOptionText, styles.reportOptionText]}>Report User</Text>
+            </TouchableOpacity>
           </View>
         </Pressable>
       </Modal>
@@ -958,6 +1013,54 @@ export default function ChatScreen() {
           <ActivityIndicator size="large" color={COLORS.secondary} />
           <Text style={styles.loadingOverlayText}>Processing...</Text>
         </View>
+      </Modal>
+
+      {/* Report Reason Modal */}
+      <Modal
+        transparent={true}
+        animationType="fade"
+        visible={isReportModalVisible}
+        onRequestClose={() => setIsReportModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlayReport}
+        >
+          <View style={styles.reportModalContent}>
+            <Text style={styles.reportModalTitle}>Report {otherUser.name}</Text>
+            <Text style={styles.reportModalSubtitle}>Please provide a reason for reporting this user. Your report is anonymous.</Text>
+            <TextInput
+              style={styles.reportInput}
+              placeholder="Enter reason here..."
+              value={reportReason}
+              onChangeText={setReportReason}
+              multiline
+              numberOfLines={4}
+            />
+            <View style={styles.reportModalButtons}>
+              <TouchableOpacity
+                style={[styles.reportModalButton, styles.cancelReportButton]}
+                onPress={() => {
+                  setIsReportModalVisible(false);
+                  setReportReason(''); // Clear reason on cancel
+                }}
+              >
+                <Text style={styles.cancelReportButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.reportModalButton, styles.submitReportButton]}
+                onPress={submitReport}
+                disabled={!reportReason.trim() || isScreenLoading}
+              >
+                {isScreenLoading ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={styles.submitReportButtonText}>Submit Report</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1157,6 +1260,9 @@ const styles = StyleSheet.create({
   blockOptionText: {
     color: COLORS.error,
   },
+  reportOptionText: {
+    color: COLORS.warning,
+  },
   menuDivider: {
     height: 1,
     backgroundColor: '#e5e5e5',
@@ -1166,11 +1272,74 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)', // Semi-transparent background
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   loadingOverlayText: {
     marginTop: 12,
     fontSize: 16,
-    color: '#FFFFFF', // White text for visibility
+    color: '#FFFFFF',
+  },
+  // Styles for Report Modal
+  modalOverlayReport: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reportModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 20,
+    width: '85%',
+    alignItems: 'center',
+  },
+  reportModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: COLORS.darkestMaroon,
+  },
+  reportModalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  reportInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 5,
+    padding: 10,
+    width: '100%',
+    minHeight: 80,
+    fontSize: 14,
+    textAlignVertical: 'top',
+    marginBottom: 20,
+  },
+  reportModalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  reportModalButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 5,
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  cancelReportButton: {
+    backgroundColor: '#f0f0f0',
+  },
+  cancelReportButtonText: {
+    color: '#333',
+    fontWeight: 'bold',
+  },
+  submitReportButton: {
+    backgroundColor: COLORS.warning,
+  },
+  submitReportButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
   },
 }); 

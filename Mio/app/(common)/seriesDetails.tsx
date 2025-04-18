@@ -19,12 +19,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '../../constants/Colors';
 
-import placeholderIcon from '../../assets/images/icon.png';
 import { useFavorites } from '../../context/FavoritesContext';
+import { fetchTMDB } from '../../utils/tmdbApi';
 
 const { width, height } = Dimensions.get('window');
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/';
-const TMDB_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY || '';
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5; // Assuming a default value, actual implementation needed
 
@@ -169,21 +168,8 @@ export default function SeriesDetailsScreen() {
     setError(null);
     
     try {
-      // Check if API key is available
-      if (!TMDB_API_KEY) {
-        throw new Error('TMDB API key is not configured');
-      }
-      
-      // Fetch show details from TMDB
-      const detailsResponse = await fetch(
-        `https://api.themoviedb.org/3/tv/${showId}?api_key=${TMDB_API_KEY}&append_to_response=similar`
-      );
-      
-      if (!detailsResponse.ok) {
-        throw new Error(`Failed to fetch show details. Status: ${detailsResponse.status}`);
-      }
-      
-      const data = await detailsResponse.json();
+      // Fetch show details using the secure utility
+      const data = await fetchTMDB(`/tv/${showId}`, { append_to_response: 'similar' });
       
       if (!data || !data.name) {
         throw new Error('Invalid show data received from API');
@@ -212,13 +198,20 @@ export default function SeriesDetailsScreen() {
       
       // Format similar shows
       if (data.similar && data.similar.results) {
-        const formattedSimilar = data.similar.results.map((show: any) => ({
-          id: show.id,
-          title: show.name,
-          posterPath: show.poster_path,
-          overview: show.overview,
-          type: showType
-        })).slice(0, 10);
+        const formattedSimilar = data.similar.results
+          .map((show: any) => {
+            // Simple classification for similar shows
+            const isAnime = show.genre_ids?.includes(16) || show.original_language === 'ja';
+            const type: 'anime' | 'kdrama' = isAnime ? 'anime' : 'kdrama'; // Default others to kdrama for now
+            return {
+              id: show.id,
+              title: show.name,
+              posterPath: show.poster_path,
+              overview: show.overview,
+              type: type // Assign derived type
+            };
+          })
+          .slice(0, 10); // Limit to 10 similar shows
         
         setSimilarShows(formattedSimilar);
       }
@@ -389,20 +382,20 @@ export default function SeriesDetailsScreen() {
         contentContainerStyle={styles.similarShowsContainer}
       >
         {similarShows.map(show => (
-          <TouchableOpacity 
-            key={show.id} 
+          <TouchableOpacity
+            key={show.id}
             style={styles.similarShowCard}
             onPress={() => router.push({
               pathname: "/(common)/seriesDetails",
               params: { id: show.id.toString(), type: show.type }
             })}
           >
-            <Image 
-              source={{ 
-                uri: show.posterPath 
-                  ? `${TMDB_IMAGE_BASE_URL}w185${show.posterPath}` 
-                  : Image.resolveAssetSource(placeholderIcon).uri
-              }} 
+            <Image
+              source={{
+                uri: show.posterPath
+                  ? `${TMDB_IMAGE_BASE_URL}w185${show.posterPath}`
+                  : 'https://via.placeholder.com/185x278?text=No+Image'
+              }}
               style={styles.similarShowImage}
             />
             <Text style={styles.similarShowTitle} numberOfLines={2}>{show.title}</Text>
@@ -447,7 +440,7 @@ export default function SeriesDetailsScreen() {
             source={{ 
               uri: showDetails.backdrop_path 
                 ? `${TMDB_IMAGE_BASE_URL}w780${showDetails.backdrop_path}` 
-                : Image.resolveAssetSource(placeholderIcon).uri
+                : 'https://via.placeholder.com/780x440?text=No+Backdrop'
             }} 
             style={styles.backdropImage} 
           />
@@ -513,7 +506,7 @@ export default function SeriesDetailsScreen() {
               source={{ 
                 uri: showDetails.poster_path 
                   ? `${TMDB_IMAGE_BASE_URL}w342${showDetails.poster_path}` 
-                  : Image.resolveAssetSource(placeholderIcon).uri
+                  : 'https://via.placeholder.com/342x513?text=No+Poster'
               }} 
               style={styles.posterImage} 
             />
@@ -617,9 +610,9 @@ export default function SeriesDetailsScreen() {
                 {showDetails.networks.map(network => (
                   <View key={network.id} style={styles.networkItem}>
                     {network.logo_path ? (
-                      <Image 
-                        source={{ uri: `${TMDB_IMAGE_BASE_URL}w92${network.logo_path}` }} 
-                        style={styles.networkLogo} 
+                      <Image
+                        source={{ uri: `${TMDB_IMAGE_BASE_URL}w92${network.logo_path}` }}
+                        style={styles.networkLogo}
                         resizeMode="contain"
                       />
                     ) : (

@@ -37,3 +37,6 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+
+# Firebase service account key
+.cursor/mio-deployment-firebase-adminsdk-fbsvc-30cd5e38fe.json

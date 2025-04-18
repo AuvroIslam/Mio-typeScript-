@@ -8,7 +8,8 @@
     "react-native-background-timer": "^2.4.1",
     "react-native-dropdown-picker": "^5.4.6",
     "react-native-gifted-chat": "^2.8.1",
-    "react-native-svg": "^15.11.2"
+    "react-native-svg": "^15.11.2",
+    "expo-notifications": "~0.29.14"
   },
   "devDependencies": {
     "eslint": "^9.23.0"
