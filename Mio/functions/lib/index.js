@@ -31,6 +31,8 @@ const os = __importStar(require("os"));
 const path = __importStar(require("path"));
 const firestore_1 = require("firebase-admin/firestore"); // Import FieldValue
 const crypto = __importStar(require("crypto"));
+const https_1 = require("firebase-functions/v2/https");
+const scheduler_1 = require("firebase-functions/v2/scheduler");
 // Initialize Firebase Admin
 admin.initializeApp();
 // Configuration constants (same as in client)
@@ -93,9 +95,7 @@ async function deleteStorageFolder(folderPath) {
  * Scheduled function that runs daily to check which conversations need archiving
  * This is more reliable than client-triggered archiving
  */
-exports.scheduleMessageArchiving = functions.pubsub
-    .schedule("every 24 hours") // Set to 2 mins for testing, change back later!
-    .onRun(async () => {
+exports.scheduleMessageArchiving = (0, scheduler_1.onSchedule)("every 24 hours", async (event) => {
     try {
         const db = admin.firestore();
         // Get conversations that need archiving
@@ -104,7 +104,7 @@ exports.scheduleMessageArchiving = functions.pubsub
             .get();
         if (conversationsSnapshot.empty) {
             functions.logger.info("No conversations need archiving");
-            return null;
+            return;
         }
         // Process each conversation
         // Note: This could process many conversations in parallel.
@@ -118,11 +118,11 @@ exports.scheduleMessageArchiving = functions.pubsub
         });
         await Promise.all(promises);
         functions.logger.info(`Scheduled archiving complete, processed ${conversationsSnapshot.size} conversations`);
-        return null;
+        return;
     }
     catch (error) {
         functions.logger.error("Error in scheduled archiving:", error);
-        return null;
+        return;
     }
 });
 /**
@@ -258,21 +258,21 @@ async function archiveOldMessageBatches(conversationId) {
  * HTTP function to manually trigger archiving for a specific conversation
  * This can be called from admin tools if needed
  */
-exports.manualArchiveMessages = functions.https.onCall(async (data, context) => {
+exports.manualArchiveMessages = (0, https_1.onCall)(async (request) => {
     // Check if the request is made by an authenticated user
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "The function must be called while authenticated.");
     }
-    const conversationId = data.conversationId;
+    const conversationId = request.data.conversationId;
     if (!conversationId) {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires a conversationId parameter.");
+        throw new https_1.HttpsError("invalid-argument", "The function requires a conversationId parameter.");
     }
     try {
         const result = await archiveOldMessageBatches(conversationId);
         return result;
     }
     catch (error) {
-        throw new functions.https.HttpsError("internal", `Error archiving messages: ${error}`);
+        throw new https_1.HttpsError("internal", `Error archiving messages: ${error}`);
     }
 });
 /**
@@ -299,15 +299,15 @@ async function performConversationDeletion(conversationId, conversationRef) {
  * HTTPS Callable function to delete all data associated with a conversation.
  * Called when a user unmatches or blocks another user.
  */
-exports.deleteConversationData = functions.https.onCall(async (data, context) => {
+exports.deleteConversationData = (0, https_1.onCall)(async (request) => {
     // 1. Authentication Check
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "The function must be called while authenticated.");
     }
-    const currentUserId = context.auth.uid;
-    const otherUserId = data.otherUserId;
+    const currentUserId = request.auth.uid;
+    const otherUserId = request.data.otherUserId;
     if (!otherUserId || typeof otherUserId !== "string") {
-        throw new functions.https.HttpsError("invalid-argument", "The function requires an 'otherUserId' parameter (string).");
+        throw new https_1.HttpsError("invalid-argument", "The function requires an 'otherUserId' parameter (string).");
     }
     const db = admin.firestore();
     try {
@@ -352,36 +352,36 @@ exports.deleteConversationData = functions.https.onCall(async (data, context) =>
         functions.logger.error(`Error deleting conversation data between ${currentUserId} and ${otherUserId}:`, error);
         // Check if error is an object with a message property before accessing it
         const errorMessage = error instanceof Error ? error.message : String(error);
-        throw new functions.https.HttpsError("internal", `Failed to delete conversation data: ${errorMessage}`);
+        throw new https_1.HttpsError("internal", `Failed to delete conversation data: ${errorMessage}`);
     }
 });
 /**
  * Cloud function to search for user matches
  * This moves the matching algorithm to the server for better security and performance
  */
-exports.searchUserMatches = functions.https.onCall(async (data, context) => {
+exports.searchUserMatches = (0, https_1.onCall)(async (request) => {
     // Verify authentication
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "The function must be called while authenticated.");
     }
-    const currentUserId = context.auth.uid;
-    const currentUserFavoriteShowIds = data.favoriteShowIds || []; // Renamed for clarity
+    const currentUserId = request.auth.uid;
+    const currentUserFavoriteShowIds = request.data.favoriteShowIds || []; // Renamed for clarity
     try {
         const db = admin.firestore();
         const userRef = db.collection("users").doc(currentUserId);
         const userDoc = await userRef.get();
         if (!userDoc.exists) {
-            throw new functions.https.HttpsError("not-found", "User profile not found.");
+            throw new https_1.HttpsError("not-found", "User profile not found.");
         }
         const userData = userDoc.data();
         const userProfile = userData === null || userData === void 0 ? void 0 : userData.profile;
         const existingMatches = (userData === null || userData === void 0 ? void 0 : userData.matches) || [];
         const blockedUsers = (userProfile === null || userProfile === void 0 ? void 0 : userProfile.blockedUsers) || [];
         if (!userProfile || !userProfile.displayName || !userProfile.age || !userProfile.gender) {
-            throw new functions.https.HttpsError("failed-precondition", "Please complete your profile before searching for matches.");
+            throw new https_1.HttpsError("failed-precondition", "Please complete your profile before searching for matches.");
         }
         if (currentUserFavoriteShowIds.length === 0) {
-            throw new functions.https.HttpsError("failed-precondition", "Add some favorite shows first to find matches!");
+            throw new https_1.HttpsError("failed-precondition", "Add some favorite shows first to find matches!");
         }
         // OPTIMIZATION 1: Use Sets
         const existingMatchIds = new Set(existingMatches.map((match) => match.userId));
@@ -421,7 +421,6 @@ exports.searchUserMatches = functions.https.onCall(async (data, context) => {
         // Calculate cooldown time before potential early return
         const now = new Date();
         const newSearchCount = ((userData === null || userData === void 0 ? void 0 : userData.matchSearchCount) || 0) + 1;
-        functions.logger.info(`[COOLDOWN-FUNCTION] Setting newSearchCount to ${newSearchCount}`);
         // Calculate cooldown time based on search count
         let cooldownMinutes;
         const COOLDOWN_MINUTES = {
@@ -439,14 +438,12 @@ exports.searchUserMatches = functions.https.onCall(async (data, context) => {
             cooldownMinutes = COOLDOWN_MINUTES.THIRD;
         }
         const cooldownEnd = new Date(now.getTime() + cooldownMinutes * 60 * 1000);
-        functions.logger.info(`[COOLDOWN-FUNCTION] Calculated cooldown: ${cooldownMinutes} minutes, ends at ${cooldownEnd.toISOString()}`);
         // Update user's search count and cooldown time
         await userRef.update({
             matchSearchCount: newSearchCount,
             lastMatchSearch: now,
             cooldownEndTime: cooldownEnd,
         });
-        functions.logger.info(`[COOLDOWN-FUNCTION] Updated user document with new cooldown information`);
         if (potentialUserIds.length === 0) {
             // Even with no matches, we still return the cooldown information
             const responseObject = {
@@ -456,8 +453,6 @@ exports.searchUserMatches = functions.https.onCall(async (data, context) => {
                 cooldownEnd: cooldownEnd.toISOString(),
                 message: "No new matches found"
             };
-            // Debug log the final response object
-            functions.logger.info("[COOLDOWN-FUNCTION] FINAL RESPONSE: " + JSON.stringify(responseObject));
             return responseObject;
         }
         // OPTIMIZATION 5 & 6: Batch get profiles and prepare match data
@@ -558,27 +553,28 @@ exports.searchUserMatches = functions.https.onCall(async (data, context) => {
             cooldownEnd: cooldownEnd.toISOString(),
             message: newMatchesData.length > 0 ? `Found ${newMatchesData.length} new matches!` : "No new matches found"
         };
-        // Debug log the final response object to confirm cooldownEnd is included
-        functions.logger.info("[COOLDOWN-FUNCTION] FINAL RESPONSE: " + JSON.stringify(responseObject));
         return responseObject;
     }
     catch (error) {
         functions.logger.error("Error in searchUserMatches:", error);
-        throw new functions.https.HttpsError("internal", `Failed to search for matches: ${error.message || error}`);
+        throw new https_1.HttpsError("internal", `Failed to search for matches: ${error.message || error}`);
     }
 });
 // Cloudinary signed upload function
-exports.getCloudinarySignature = functions.https.onCall(async (data, context) => {
+exports.getCloudinarySignature = (0, https_1.onCall)(async (request) => {
     // Ensure user is authenticated
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "The function must be called while authenticated.");
     }
     try {
-        // Get Cloudinary credentials from environment
-        const apiKey = functions.config().cloudinary.api_key;
-        const apiSecret = functions.config().cloudinary.api_secret;
-        const cloudName = functions.config().cloudinary.cloud_name;
-        const uploadPreset = functions.config().cloudinary.upload_preset;
+        // Get Cloudinary credentials from environment variables
+        const apiKey = process.env.CLOUDINARY_API_KEY;
+        const apiSecret = process.env.CLOUDINARY_API_SECRET;
+        const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+        const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET;
+        if (!apiKey || !apiSecret || !cloudName || !uploadPreset) {
+            throw new https_1.HttpsError("failed-precondition", "Cloudinary credentials are not properly configured.");
+        }
         // Create parameters for the signature
         const timestamp = Math.round(new Date().getTime() / 1000);
         const folder = "mio_app_profiles";
@@ -602,77 +598,85 @@ exports.getCloudinarySignature = functions.https.onCall(async (data, context) =>
     }
     catch (error) {
         console.error("Error generating Cloudinary signature:", error);
-        throw new functions.https.HttpsError("internal", "Unable to generate signature");
+        throw new https_1.HttpsError("internal", "Unable to generate signature");
     }
 });
 // Function to check if a user is an admin
-exports.checkAdminStatus = functions.https.onCall(async (data, context) => {
+exports.checkAdminStatus = (0, https_1.onCall)(async (request) => {
     // Ensure user is authenticated
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "The function must be called while authenticated.");
     }
     try {
-        // Get admin email from config
-        const adminEmail = functions.config().admin.email;
+        // Get admin email from environment variable
+        const adminEmail = process.env.ADMIN_EMAIL;
+        if (!adminEmail) {
+            throw new https_1.HttpsError("failed-precondition", "Admin email is not configured.");
+        }
         // If user's email matches admin email, return true
-        if (context.auth.token.email === adminEmail) {
+        if (request.auth.token.email === adminEmail) {
             return { isAdmin: true };
         }
         return { isAdmin: false };
     }
     catch (error) {
-        console.error("Error checking admin status:Z", error);
-        throw new functions.https.HttpsError("internal", "Unable to check admin status");
+        console.error("Error checking admin status:", error);
+        throw new https_1.HttpsError("internal", "Unable to check admin status");
     }
 });
 // Function to set admin claim on a user
 // This should be called manually by you (the developer) when needed
-exports.setAdminClaim = functions.https.onCall(async (data, context) => {
+exports.setAdminClaim = (0, https_1.onCall)(async (request) => {
     // Check if the requester is already an admin
-    if (!context.auth || !context.auth.token.email) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    if (!request.auth || !request.auth.token.email) {
+        throw new https_1.HttpsError("unauthenticated", "The function must be called while authenticated.");
     }
-    // Get admin email from config
-    const adminEmail = functions.config().admin.email;
+    // Get admin email from environment variable
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (!adminEmail) {
+        throw new https_1.HttpsError("failed-precondition", "Admin email is not configured.");
+    }
     // Only allow the admin email to set admin claims
-    if (context.auth.token.email !== adminEmail) {
-        throw new functions.https.HttpsError("permission-denied", "Only admins can set admin claims");
+    if (request.auth.token.email !== adminEmail) {
+        throw new https_1.HttpsError("permission-denied", "Only admins can set admin claims");
     }
     // Validate data
-    if (!data.email) {
-        throw new functions.https.HttpsError("invalid-argument", "Email is required");
+    if (!request.data.email) {
+        throw new https_1.HttpsError("invalid-argument", "Email is required");
     }
     try {
         // Get the user by email
-        const userRecord = await admin.auth().getUserByEmail(data.email);
+        const userRecord = await admin.auth().getUserByEmail(request.data.email);
         // Set admin claim
         await admin.auth().setCustomUserClaims(userRecord.uid, { admin: true });
-        return { success: true, message: `Admin claim set successfully for user: ${data.email}` };
+        return { success: true, message: `Admin claim set successfully for user: ${request.data.email}` };
     }
     catch (error) {
         console.error("Error setting admin claim:", error);
-        throw new functions.https.HttpsError("internal", "Unable to set admin claim");
+        throw new https_1.HttpsError("internal", "Unable to set admin claim");
     }
 });
 // Function to proxy TMDB API requests
-exports.getTMDBData = functions.https.onCall(async (data, context) => {
-    var _a;
+exports.getTMDBData = (0, https_1.onCall)(async (request) => {
     // Ensure user is authenticated
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "The function must be called while authenticated.");
     }
     try {
         // Validate required parameters
-        const { endpoint, params } = data;
+        const { endpoint, params } = request.data;
         if (!endpoint) {
-            throw new functions.https.HttpsError("invalid-argument", "The 'endpoint' parameter is required.");
+            throw new https_1.HttpsError("invalid-argument", "The 'endpoint' parameter is required.");
         }
-        // Get TMDB API key from config
-        const apiKey = (_a = functions.config().tmdb) === null || _a === void 0 ? void 0 : _a.api_key; // Use optional chaining
+        // Get TMDB API key directly using the standard name
+        const apiKey = process.env.TMDB_API_KEY;
+        functions.logger.info("Reading TMDB_API_KEY from process.env"); // Simple log
         if (!apiKey) {
-            console.error("TMDB API key is missing in Firebase function config.");
-            throw new functions.https.HttpsError("failed-precondition", "TMDB API key is not configured.");
+            functions.logger.error("TMDB_API_KEY was missing or empty in process.env!"); // Log error
+            console.error("TMDB API key is missing in environment variables."); // Keep console for potential client error message
+            throw new https_1.HttpsError("failed-precondition", "TMDB API key is not configured.");
         }
+        functions.logger.info("TMDB_API_KEY found."); // Confirmation log
         // Construct the URL with query parameters
         const safeEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         let url = `https://api.themoviedb.org/3${safeEndpoint}?api_key=${apiKey}`;
@@ -683,13 +687,11 @@ exports.getTMDBData = functions.https.onCall(async (data, context) => {
             });
         }
         // NOTE: 'fetch' is globally available in newer Cloud Functions runtimes (Node 18+)
-        // If using an older runtime, you might need to import 'node-fetch'
-        // import fetch from 'node-fetch';
         const response = await fetch(url);
         if (!response.ok) {
             const errorBody = await response.text(); // Get error details from TMDB
             functions.logger.error(`TMDB API error for URL ${url}: ${response.status} ${response.statusText}`, { errorBody });
-            throw new functions.https.HttpsError("internal", // Use a more specific code like 'unavailable' if appropriate
+            throw new https_1.HttpsError("internal", // Use a more specific code like 'unavailable' if appropriate
             `TMDB API error: ${response.status} ${response.statusText}`);
         }
         const result = await response.json();
@@ -698,21 +700,21 @@ exports.getTMDBData = functions.https.onCall(async (data, context) => {
     catch (error) {
         functions.logger.error("Error fetching from TMDB:", error);
         // Re-throw HttpsErrors directly, wrap others
-        if (error instanceof functions.https.HttpsError) {
+        if (error instanceof https_1.HttpsError) {
             throw error;
         }
-        throw new functions.https.HttpsError("internal", `Failed to fetch TMDB data: ${error.message || String(error)}`);
+        throw new https_1.HttpsError("internal", `Failed to fetch TMDB data: ${error.message || String(error)}`);
     }
 });
 /**
  * HTTPS Callable function to delete a user's account and all associated data.
  */
-exports.deleteUserAccount = functions.https.onCall(async (data, context) => {
+exports.deleteUserAccount = (0, https_1.onCall)(async (request) => {
     // 1. Authentication Check
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "The function must be called while authenticated.");
+    if (!request.auth) {
+        throw new https_1.HttpsError("unauthenticated", "The function must be called while authenticated.");
     }
-    const userIdToDelete = context.auth.uid;
+    const userIdToDelete = request.auth.uid;
     functions.logger.info(`Attempting to delete account for user: ${userIdToDelete}`);
     const db = admin.firestore();
     const batch = db.batch(); // Use a batch for multiple Firestore writes
@@ -810,10 +812,10 @@ exports.deleteUserAccount = functions.https.onCall(async (data, context) => {
     catch (error) {
         functions.logger.error(`Error deleting user account ${userIdToDelete}:`, error);
         // Re-throw HttpsErrors directly, wrap others
-        if (error instanceof functions.https.HttpsError) {
+        if (error instanceof https_1.HttpsError) {
             throw error;
         }
-        throw new functions.https.HttpsError("internal", "An error occurred while deleting the account. Please try again later."
+        throw new https_1.HttpsError("internal", "An error occurred while deleting the account. Please try again later."
         // Consider logging error.message for internal debugging but not sending to client
         );
     }

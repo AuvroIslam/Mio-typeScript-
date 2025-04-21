@@ -146,7 +146,7 @@ export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const { 
     userFavorites, 
-    cooldownTimer,
+    cooldownTimer, 
     removalCount, 
     formattedCooldownString,
     confirmRemoveFromFavorites,
@@ -216,21 +216,21 @@ export default function ProfileScreen() {
   // Fetch show details from TMDB using context favorites and the secure utility
   const fetchShowDetails = async () => {
     let shows: {[key: string]: ShowItem} = {};
-
+    
     try {
       if (userFavorites.shows && userFavorites.shows.length > 0) {
         await Promise.all(userFavorites.shows.map(async (id) => {
           try {
             // Fetch using tmdbApi
             const data = await tmdbApi.getShowDetails(parseInt(id, 10));
-
+            
             if (data && data.name) {
               // Simple classification
-              const isAnime = data.genres?.some((genre: any) =>
-                genre.name.toLowerCase().includes('animation')) ||
+              const isAnime = data.genres?.some((genre: any) => 
+                genre.name.toLowerCase().includes('animation')) || 
                 data.origin_country?.includes('JP') || data.original_language === 'ja';
               const type: FavoriteType = isAnime ? 'anime' : 'kdrama';
-
+              
               shows[`${id}`] = {
                 id: data.id,
                 title: data.name,

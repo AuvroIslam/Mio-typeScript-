@@ -275,7 +275,7 @@ export default function HomeScreen() {
     try {
       const trendingDocRef = doc(db, 'trending', 'trendingShows');
       const trendingDoc = await getDoc(trendingDocRef);
-
+      
       if (trendingDoc.exists() && trendingDoc.data().shows?.length > 0) {
         const shows = (trendingDoc.data().shows as ShowItem[])
                       .sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -309,9 +309,9 @@ export default function HomeScreen() {
           data.results.map((show: any) => classifyShow(show))
         );
         const filteredShows = classifiedShows.filter((show): show is ShowItem => show !== null);
-
+    
         setTrendingShows(filteredShows.slice(0, 30)); // Limit results
-
+        
     } catch (error) {
       console.error('Error fetching trending shows from API:', error);
       setFeedbackModal({
@@ -338,11 +338,11 @@ export default function HomeScreen() {
       try {
         // Use the tmdbApi utility for searching
         const data = await tmdbApi.searchShows(query);
-
+        
         if (!data || !data.results) {
           throw new Error('Failed to search shows');
         }
-
+        
         // Classify and deduplicate results (same logic as before)
         const showMap = new Map<string, ShowItem>();
         const classifiedShows = await Promise.all(

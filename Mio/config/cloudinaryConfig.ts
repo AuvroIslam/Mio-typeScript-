@@ -20,7 +20,7 @@ export const uploadImage = async (localUri: string): Promise<string> => {
       folder: string;
       uploadPreset: string;
     };
-    
+
     // Create form data for upload
     const formData = new FormData();
     
@@ -63,11 +63,11 @@ export const uploadImage = async (localUri: string): Promise<string> => {
         'Accept': 'application/json',
       },
     });
-    
+  
     const uploadResult = await uploadResponse.json();
     
     if (uploadResponse.ok) {
-      return uploadResult.secure_url;
+          return uploadResult.secure_url;
     } else {
       console.error('Upload failed:', uploadResult.error);
       throw new Error(uploadResult.error?.message || 'Upload failed');
@@ -76,4 +76,4 @@ export const uploadImage = async (localUri: string): Promise<string> => {
     console.error('Error uploading to Cloudinary:', error);
     throw error;
   }
-}; 
+};

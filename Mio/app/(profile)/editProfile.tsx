@@ -54,7 +54,7 @@ interface ProfileFormData {
 }
 
 export default function EditProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUserState } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [profileData, setProfileData] = useState<ProfileFormData>({
@@ -82,6 +82,7 @@ export default function EditProfileScreen() {
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false); // Separate loading state for deletion
+  
   
   // Fetch current profile data
   useEffect(() => {
@@ -307,6 +308,9 @@ export default function EditProfileScreen() {
       
       // Haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      // Refresh user state
+      await refreshUserState();
     } catch (error) {
       console.error('Error updating profile:', error);
       Alert.alert('Error', 'Failed to update profile');
@@ -364,6 +368,7 @@ export default function EditProfileScreen() {
     } 
     // No finally block to reset isDeleting here, as success navigates away.
   };
+  
   
   if (isLoading) {
     return (
@@ -845,6 +850,8 @@ export default function EditProfileScreen() {
             </View>
           </View>
         </Modal>
+
+        
       </ScrollView>
     </SafeAreaView>
   );
@@ -1196,4 +1203,5 @@ const styles = StyleSheet.create({
   disabledButton: {
     backgroundColor: '#CCC',
   },
+  
 }); 

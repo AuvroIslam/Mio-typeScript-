@@ -446,9 +446,9 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         // Handle feedback
         const newMatchCount = data.matchCount || 0;
       
-        if (newMatchCount > 0) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        } else {
+      if (newMatchCount > 0) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
             // Provide feedback even if no new matches found, but search was successful
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning); // Use Warning or Success
             // Optionally set a temporary message via setError or a dedicated state
@@ -460,7 +460,7 @@ export const MatchContextProvider: React.FC<MatchContextProviderProps> = ({ chil
         throw new Error(data.message || "Unknown error in search matches");
       }
     } catch (error: any) {
-      setError(`Search failed: ${error.message || error}`);
+        setError(`Search failed: ${error.message || error}`);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       return 0;
     } finally {

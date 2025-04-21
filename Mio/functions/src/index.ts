@@ -5,6 +5,9 @@ import * as os from "os";
 import * as path from "path";
 import {FieldValue} from "firebase-admin/firestore"; // Import FieldValue
 import * as crypto from "crypto";
+import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {onSchedule} from "firebase-functions/v2/scheduler";
+
 
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -123,45 +126,43 @@ async function deleteStorageFolder(folderPath: string): Promise<void> {
  * Scheduled function that runs daily to check which conversations need archiving
  * This is more reliable than client-triggered archiving
  */
-export const scheduleMessageArchiving = functions.pubsub
-  .schedule("every 24 hours") // Set to 2 mins for testing, change back later!
-  .onRun(async () => {
-    try {
-      const db = admin.firestore();
+export const scheduleMessageArchiving = onSchedule("every 24 hours", async (event) => {
+  try {
+    const db = admin.firestore();
 
-      // Get conversations that need archiving
-      const conversationsSnapshot = await db.collection("conversations")
-        .where("messageCount", ">=", ARCHIVE_THRESHOLD)
-        .get();
+    // Get conversations that need archiving
+    const conversationsSnapshot = await db.collection("conversations")
+      .where("messageCount", ">=", ARCHIVE_THRESHOLD)
+      .get();
 
-      if (conversationsSnapshot.empty) {
-        functions.logger.info("No conversations need archiving");
-        return null;
-      }
-
-      // Process each conversation
-      // Note: This could process many conversations in parallel.
-      // Consider using Promise.allSettled or batching if necessary at larger scale.
-      const promises = conversationsSnapshot.docs.map(async (doc) => {
-        const conversationId = doc.id;
-        // Check if conversationData indicates it's already being archived by another process
-        // (e.g., if manual trigger was used recently - requires adding the flag back)
-        // For simplicity now, we assume the schedule is the main driver or manual calls are rare.
-        await archiveOldMessageBatches(conversationId);
-      });
-
-      await Promise.all(promises);
-
-      functions.logger.info(
-        `Scheduled archiving complete, processed ${conversationsSnapshot.size} conversations`
-      );
-
-      return null;
-    } catch (error) {
-      functions.logger.error("Error in scheduled archiving:", error);
-      return null;
+    if (conversationsSnapshot.empty) {
+      functions.logger.info("No conversations need archiving");
+      return;
     }
-  });
+
+    // Process each conversation
+    // Note: This could process many conversations in parallel.
+    // Consider using Promise.allSettled or batching if necessary at larger scale.
+    const promises = conversationsSnapshot.docs.map(async (doc) => {
+      const conversationId = doc.id;
+      // Check if conversationData indicates it's already being archived by another process
+      // (e.g., if manual trigger was used recently - requires adding the flag back)
+      // For simplicity now, we assume the schedule is the main driver or manual calls are rare.
+      await archiveOldMessageBatches(conversationId);
+    });
+
+    await Promise.all(promises);
+
+    functions.logger.info(
+      `Scheduled archiving complete, processed ${conversationsSnapshot.size} conversations`
+    );
+
+    return;
+  } catch (error) {
+    functions.logger.error("Error in scheduled archiving:", error);
+    return;
+  }
+});
 
 /**
  * Archive old message batches to Firebase Storage
@@ -332,18 +333,18 @@ async function archiveOldMessageBatches(conversationId: string): Promise<{
  * HTTP function to manually trigger archiving for a specific conversation
  * This can be called from admin tools if needed
  */
-export const manualArchiveMessages = functions.https.onCall(async (data, context) => {
+export const manualArchiveMessages = onCall(async (request) => {
   // Check if the request is made by an authenticated user
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
+  if (!request.auth) {
+    throw new HttpsError(
       "unauthenticated",
       "The function must be called while authenticated."
     );
   }
 
-  const conversationId = data.conversationId;
+  const conversationId = request.data.conversationId;
   if (!conversationId) {
-    throw new functions.https.HttpsError(
+    throw new HttpsError(
       "invalid-argument",
       "The function requires a conversationId parameter."
     );
@@ -353,7 +354,7 @@ export const manualArchiveMessages = functions.https.onCall(async (data, context
     const result = await archiveOldMessageBatches(conversationId);
     return result;
   } catch (error) {
-    throw new functions.https.HttpsError("internal", `Error archiving messages: ${error}`);
+    throw new HttpsError("internal", `Error archiving messages: ${error}`);
   }
 });
 
@@ -387,19 +388,19 @@ async function performConversationDeletion(
  * HTTPS Callable function to delete all data associated with a conversation.
  * Called when a user unmatches or blocks another user.
  */
-export const deleteConversationData = functions.https.onCall(async (data, context) => {
+export const deleteConversationData = onCall(async (request) => {
   // 1. Authentication Check
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
+  if (!request.auth) {
+    throw new HttpsError(
       "unauthenticated",
       "The function must be called while authenticated."
     );
   }
-  const currentUserId = context.auth.uid;
-  const otherUserId = data.otherUserId;
+  const currentUserId = request.auth.uid;
+  const otherUserId = request.data.otherUserId;
 
   if (!otherUserId || typeof otherUserId !== "string") {
-    throw new functions.https.HttpsError(
+    throw new HttpsError(
       "invalid-argument",
       "The function requires an 'otherUserId' parameter (string)."
     );
@@ -457,7 +458,7 @@ export const deleteConversationData = functions.https.onCall(async (data, contex
     );
     // Check if error is an object with a message property before accessing it
     const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new functions.https.HttpsError(
+    throw new HttpsError(
       "internal",
       `Failed to delete conversation data: ${errorMessage}`
     );
@@ -468,24 +469,24 @@ export const deleteConversationData = functions.https.onCall(async (data, contex
  * Cloud function to search for user matches
  * This moves the matching algorithm to the server for better security and performance
  */
-export const searchUserMatches = functions.https.onCall(async (data, context) => {
+export const searchUserMatches = onCall(async (request) => {
   // Verify authentication
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
+  if (!request.auth) {
+    throw new HttpsError(
       "unauthenticated",
       "The function must be called while authenticated."
     );
   }
 
-  const currentUserId = context.auth.uid;
-  const currentUserFavoriteShowIds: string[] = data.favoriteShowIds || []; // Renamed for clarity
+  const currentUserId = request.auth.uid;
+  const currentUserFavoriteShowIds: string[] = request.data.favoriteShowIds || []; // Renamed for clarity
 
   try {
     const db = admin.firestore();
     const userRef = db.collection("users").doc(currentUserId);
     const userDoc = await userRef.get();
     if (!userDoc.exists) {
-      throw new functions.https.HttpsError(
+      throw new HttpsError(
         "not-found",
         "User profile not found."
       );
@@ -496,14 +497,14 @@ export const searchUserMatches = functions.https.onCall(async (data, context) =>
     const existingMatches = userData?.matches || [];
     const blockedUsers = userProfile?.blockedUsers || [];
     if (!userProfile || !userProfile.displayName || !userProfile.age || !userProfile.gender) {
-      throw new functions.https.HttpsError(
+      throw new HttpsError(
         "failed-precondition",
         "Please complete your profile before searching for matches."
       );
     }
 
     if (currentUserFavoriteShowIds.length === 0) {
-      throw new functions.https.HttpsError(
+      throw new HttpsError(
         "failed-precondition",
         "Add some favorite shows first to find matches!"
       );
@@ -708,7 +709,7 @@ export const searchUserMatches = functions.https.onCall(async (data, context) =>
     return responseObject;
   } catch (error: any) {
     functions.logger.error("Error in searchUserMatches:", error);
-    throw new functions.https.HttpsError(
+    throw new HttpsError(
       "internal",
       `Failed to search for matches: ${error.message || error}`
     );
@@ -716,21 +717,28 @@ export const searchUserMatches = functions.https.onCall(async (data, context) =>
 });
 
 // Cloudinary signed upload function
-export const getCloudinarySignature = functions.https.onCall(async (data, context) => {
+export const getCloudinarySignature = onCall(async (request) => {
   // Ensure user is authenticated
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
+  if (!request.auth) {
+    throw new HttpsError(
       "unauthenticated",
       "The function must be called while authenticated."
     );
   }
 
   try {
-    // Get Cloudinary credentials from environment
-    const apiKey = functions.config().cloudinary.api_key;
-    const apiSecret = functions.config().cloudinary.api_secret;
-    const cloudName = functions.config().cloudinary.cloud_name;
-    const uploadPreset = functions.config().cloudinary.upload_preset;
+    // Get Cloudinary credentials from environment variables
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.CLOUDINARY_UPLOAD_PRESET;
+
+    if (!apiKey || !apiSecret || !cloudName || !uploadPreset) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Cloudinary credentials are not properly configured."
+      );
+    }
 
     // Create parameters for the signature
     const timestamp = Math.round(new Date().getTime() / 1000);
@@ -757,7 +765,7 @@ export const getCloudinarySignature = functions.https.onCall(async (data, contex
     };
   } catch (error) {
     console.error("Error generating Cloudinary signature:", error);
-    throw new functions.https.HttpsError(
+    throw new HttpsError(
       "internal",
       "Unable to generate signature"
     );
@@ -765,28 +773,35 @@ export const getCloudinarySignature = functions.https.onCall(async (data, contex
 });
 
 // Function to check if a user is an admin
-export const checkAdminStatus = functions.https.onCall(async (data, context) => {
+export const checkAdminStatus = onCall(async (request) => {
   // Ensure user is authenticated
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
+  if (!request.auth) {
+    throw new HttpsError(
       "unauthenticated",
       "The function must be called while authenticated."
     );
   }
 
   try {
-    // Get admin email from config
-    const adminEmail = functions.config().admin.email;
+    // Get admin email from environment variable
+    const adminEmail = process.env.ADMIN_EMAIL;
+
+    if (!adminEmail) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Admin email is not configured."
+      );
+    }
 
     // If user's email matches admin email, return true
-    if (context.auth.token.email === adminEmail) {
+    if (request.auth.token.email === adminEmail) {
       return {isAdmin: true};
     }
 
     return {isAdmin: false};
   } catch (error) {
-    console.error("Error checking admin status:Z", error);
-    throw new functions.https.HttpsError(
+    console.error("Error checking admin status:", error);
+    throw new HttpsError(
       "internal",
       "Unable to check admin status"
     );
@@ -795,29 +810,36 @@ export const checkAdminStatus = functions.https.onCall(async (data, context) => 
 
 // Function to set admin claim on a user
 // This should be called manually by you (the developer) when needed
-export const setAdminClaim = functions.https.onCall(async (data, context) => {
+export const setAdminClaim = onCall(async (request) => {
   // Check if the requester is already an admin
-  if (!context.auth || !context.auth.token.email) {
-    throw new functions.https.HttpsError(
+  if (!request.auth || !request.auth.token.email) {
+    throw new HttpsError(
       "unauthenticated",
       "The function must be called while authenticated."
     );
   }
 
-  // Get admin email from config
-  const adminEmail = functions.config().admin.email;
+  // Get admin email from environment variable
+  const adminEmail = process.env.ADMIN_EMAIL;
+
+  if (!adminEmail) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Admin email is not configured."
+    );
+  }
 
   // Only allow the admin email to set admin claims
-  if (context.auth.token.email !== adminEmail) {
-    throw new functions.https.HttpsError(
+  if (request.auth.token.email !== adminEmail) {
+    throw new HttpsError(
       "permission-denied",
       "Only admins can set admin claims"
     );
   }
 
   // Validate data
-  if (!data.email) {
-    throw new functions.https.HttpsError(
+  if (!request.data.email) {
+    throw new HttpsError(
       "invalid-argument",
       "Email is required"
     );
@@ -825,15 +847,15 @@ export const setAdminClaim = functions.https.onCall(async (data, context) => {
 
   try {
     // Get the user by email
-    const userRecord = await admin.auth().getUserByEmail(data.email);
+    const userRecord = await admin.auth().getUserByEmail(request.data.email);
 
     // Set admin claim
     await admin.auth().setCustomUserClaims(userRecord.uid, {admin: true});
 
-    return {success: true, message: `Admin claim set successfully for user: ${data.email}`};
+    return {success: true, message: `Admin claim set successfully for user: ${request.data.email}`};
   } catch (error) {
     console.error("Error setting admin claim:", error);
-    throw new functions.https.HttpsError(
+    throw new HttpsError(
       "internal",
       "Unable to set admin claim"
     );
@@ -841,10 +863,10 @@ export const setAdminClaim = functions.https.onCall(async (data, context) => {
 });
 
 // Function to proxy TMDB API requests
-export const getTMDBData = functions.https.onCall(async (data, context) => {
+export const getTMDBData = onCall(async (request) => {
   // Ensure user is authenticated
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
+  if (!request.auth) {
+    throw new HttpsError(
       "unauthenticated",
       "The function must be called while authenticated."
     );
@@ -852,19 +874,35 @@ export const getTMDBData = functions.https.onCall(async (data, context) => {
 
   try {
     // Validate required parameters
-    const {endpoint, params} = data;
+    const {endpoint, params} = request.data;
     if (!endpoint) {
-      throw new functions.https.HttpsError(
+      throw new HttpsError(
         "invalid-argument",
         "The 'endpoint' parameter is required."
       );
     }
 
-    // Get TMDB API key from config
-    const apiKey = functions.config().tmdb?.api_key; // Use optional chaining
+    // Get TMDB API key from environment variable - try both formats
+    // Try the project-prefixed version first
+    let apiKey = process.env["mio-deployment.TMDB_API_KEY"];
+    
+    // If not found, try the regular version as fallback
     if (!apiKey) {
-      console.error("TMDB API key is missing in Firebase function config.");
-      throw new functions.https.HttpsError(
+      apiKey = process.env.TMDB_API_KEY;
+    }
+    
+    functions.logger.info("Attempting to read TMDB_API_KEY from process.env");
+    functions.logger.info(`Prefixed value found: ${process.env["mio-deployment.TMDB_API_KEY"] ? 'Exists' : 'Missing'}`);
+    functions.logger.info(`Regular value found: ${process.env.TMDB_API_KEY ? 'Exists' : 'Missing'}`);
+    functions.logger.info(`Final value used: ${apiKey ? 'Exists' : 'Missing or Empty'}`);
+    
+    if (apiKey) {
+      functions.logger.info(`API Key starts with: ${apiKey.substring(0, 4)}`);
+    }
+
+    if (!apiKey) {
+      console.error("TMDB API key is missing in environment variables.");
+      throw new HttpsError(
         "failed-precondition",
         "TMDB API key is not configured."
       );
@@ -882,14 +920,12 @@ export const getTMDBData = functions.https.onCall(async (data, context) => {
     }
 
     // NOTE: 'fetch' is globally available in newer Cloud Functions runtimes (Node 18+)
-    // If using an older runtime, you might need to import 'node-fetch'
-    // import fetch from 'node-fetch';
     const response = await fetch(url);
 
     if (!response.ok) {
       const errorBody = await response.text(); // Get error details from TMDB
       functions.logger.error(`TMDB API error for URL ${url}: ${response.status} ${response.statusText}`, {errorBody});
-      throw new functions.https.HttpsError(
+      throw new HttpsError(
         "internal", // Use a more specific code like 'unavailable' if appropriate
         `TMDB API error: ${response.status} ${response.statusText}`
       );
@@ -900,10 +936,10 @@ export const getTMDBData = functions.https.onCall(async (data, context) => {
   } catch (error: any) {
     functions.logger.error("Error fetching from TMDB:", error);
     // Re-throw HttpsErrors directly, wrap others
-    if (error instanceof functions.https.HttpsError) {
+    if (error instanceof HttpsError) {
       throw error;
     }
-    throw new functions.https.HttpsError(
+    throw new HttpsError(
       "internal",
       `Failed to fetch TMDB data: ${error.message || String(error)}`
     );
@@ -913,15 +949,15 @@ export const getTMDBData = functions.https.onCall(async (data, context) => {
 /**
  * HTTPS Callable function to delete a user's account and all associated data.
  */
-export const deleteUserAccount = functions.https.onCall(async (data, context) => {
+export const deleteUserAccount = onCall(async (request) => {
   // 1. Authentication Check
-  if (!context.auth) {
-    throw new functions.https.HttpsError(
+  if (!request.auth) {
+    throw new HttpsError(
       "unauthenticated",
       "The function must be called while authenticated."
     );
   }
-  const userIdToDelete = context.auth.uid;
+  const userIdToDelete = request.auth.uid;
   functions.logger.info(`Attempting to delete account for user: ${userIdToDelete}`);
 
   const db = admin.firestore();
@@ -1033,10 +1069,10 @@ export const deleteUserAccount = functions.https.onCall(async (data, context) =>
   } catch (error: any) {
     functions.logger.error(`Error deleting user account ${userIdToDelete}:`, error);
     // Re-throw HttpsErrors directly, wrap others
-    if (error instanceof functions.https.HttpsError) {
+    if (error instanceof HttpsError) {
       throw error;
     }
-    throw new functions.https.HttpsError(
+    throw new HttpsError(
       "internal",
       "An error occurred while deleting the account. Please try again later."
       // Consider logging error.message for internal debugging but not sending to client

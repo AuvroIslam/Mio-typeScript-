@@ -300,14 +300,12 @@ export default function InboxScreen() {
       ? truncateText(item.lastMessage.text) 
       : 'No messages yet';
     
-    
-      
+    // Find the corresponding match data from context to get the matchTimestamp
     const correspondingMatch = contextMatches.find((m: ContextMatchData) => m.userId === otherParticipantId);
     
+    // Determine blur based ONLY on the matchTimestamp from the context
     let shouldBlurImage = false;
-    if (item.createdAt) {
-      shouldBlurImage = isNewMatch(item.createdAt);
-    } else if (correspondingMatch && correspondingMatch.matchTimestamp) {
+    if (correspondingMatch && correspondingMatch.matchTimestamp) {
       shouldBlurImage = isNewMatch(correspondingMatch.matchTimestamp);
     }
     

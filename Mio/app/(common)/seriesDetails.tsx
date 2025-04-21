@@ -204,10 +204,10 @@ export default function SeriesDetailsScreen() {
             const isAnime = show.genre_ids?.includes(16) || show.original_language === 'ja';
             const type: 'anime' | 'kdrama' = isAnime ? 'anime' : 'kdrama'; // Default others to kdrama for now
             return {
-              id: show.id,
-              title: show.name,
-              posterPath: show.poster_path,
-              overview: show.overview,
+          id: show.id,
+          title: show.name,
+          posterPath: show.poster_path,
+          overview: show.overview,
               type: type // Assign derived type
             };
           })
@@ -382,20 +382,20 @@ export default function SeriesDetailsScreen() {
         contentContainerStyle={styles.similarShowsContainer}
       >
         {similarShows.map(show => (
-          <TouchableOpacity
-            key={show.id}
+          <TouchableOpacity 
+            key={show.id} 
             style={styles.similarShowCard}
             onPress={() => router.push({
               pathname: "/(common)/seriesDetails",
               params: { id: show.id.toString(), type: show.type }
             })}
           >
-            <Image
-              source={{
-                uri: show.posterPath
-                  ? `${TMDB_IMAGE_BASE_URL}w185${show.posterPath}`
+            <Image 
+              source={{ 
+                uri: show.posterPath 
+                  ? `${TMDB_IMAGE_BASE_URL}w185${show.posterPath}` 
                   : 'https://via.placeholder.com/185x278?text=No+Image'
-              }}
+              }} 
               style={styles.similarShowImage}
             />
             <Text style={styles.similarShowTitle} numberOfLines={2}>{show.title}</Text>
@@ -610,9 +610,9 @@ export default function SeriesDetailsScreen() {
                 {showDetails.networks.map(network => (
                   <View key={network.id} style={styles.networkItem}>
                     {network.logo_path ? (
-                      <Image
-                        source={{ uri: `${TMDB_IMAGE_BASE_URL}w92${network.logo_path}` }}
-                        style={styles.networkLogo}
+                      <Image 
+                        source={{ uri: `${TMDB_IMAGE_BASE_URL}w92${network.logo_path}` }} 
+                        style={styles.networkLogo} 
                         resizeMode="contain"
                       />
                     ) : (
