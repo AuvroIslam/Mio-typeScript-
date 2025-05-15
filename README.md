@@ -111,14 +111,7 @@ eas build --platform android --profile production
 ### Building for iOS
 
 ```bash
-# Push environment variables to EAS
-eas secret:push --scope project --env-file ./.env --force
-
-# Build a preview version
-eas build --platform ios --profile preview
-
-# Build a production version
-eas build --platform ios --profile production
+# in development
 ```
 
 ### Updating an Existing Build
