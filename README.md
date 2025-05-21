@@ -5,9 +5,13 @@ A mobile application built with React Native and Expo that matches users based o
 
 ## 📥 Download Now
 
+
 👉 [Get Mio on Google Play Store](https://play.google.com/store/apps/details?id=com.mioapp.social&pli=1)
 
+
+
 ## 📱 App Preview
+
 
 A quick look at the Mio App interface:
 
