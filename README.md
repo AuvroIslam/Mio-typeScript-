@@ -2,6 +2,11 @@
 
 A mobile application built with React Native and Expo that matches users based on their favorite anime and K-drama shows. Mio creates connections between users with similar entertainment preferences, allowing them to chat and form relationships around their common interests.
 
+
+## 📥 Download Now
+
+👉 [Get Mio on Google Play Store](https://play.google.com/store/apps/details?id=com.mioapp.social&pli=1)
+
 ## Features
 
 - **User Authentication**: Secure login and registration system
