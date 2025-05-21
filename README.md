@@ -7,6 +7,18 @@ A mobile application built with React Native and Expo that matches users based o
 
 👉 [Get Mio on Google Play Store](https://play.google.com/store/apps/details?id=com.mioapp.social&pli=1)
 
+## 📱 App Preview
+
+A quick look at the Mio App interface:
+
+<p align="center">
+  <img src="Preview/ss1.jpg" alt="Mio App Screenshot 1" width="250"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="Preview/ss2.jpg" alt="Mio App Screenshot 2" width="250"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="Preview/ss3.jpg" alt="Mio App Screenshot 3" width="250"/>
+</p>
+
 ## Features
 
 - **User Authentication**: Secure login and registration system
