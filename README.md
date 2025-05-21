@@ -178,3 +178,10 @@ The app uses several Firebase Cloud Functions:
 ## License
 
 MIT 
+
+## Contact for More Details
+
+- 📧 Email: [oitijya2002@gmail.com](mailto:oitijya2002@gmail.com)  
+- 🔗 LinkedIn: [Oitijya Islam Auvro](https://linkedin.com/in/oitijya-islam-auvro-a252a5325)  
+- 💻 GitHub: [AuvroIslam](https://github.com/AuvroIslam)  
+
