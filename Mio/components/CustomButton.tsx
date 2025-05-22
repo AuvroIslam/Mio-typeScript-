@@ -19,18 +19,19 @@ const CustomButton = ({
   textStyles,
   isLoading,
   icon,
+  disabled,
 }: CustomButtonProps) => {
   return (
     <TouchableOpacity
       onPress={handlePress}
       activeOpacity={0.7}
       style={styles.button}
-      className={` w-11/12 flex flex-row justify-center items-center ${containerStyles} ${
+      className={`w-11/12 flex flex-row justify-center items-center ${containerStyles} ${
         isLoading ? "opacity-50" : ""
       }`}
-      disabled={isLoading}
+      disabled={isLoading || disabled}
     >
-      <View style={styles.contentContainer}>
+      <View style={icon ? styles.contentContainerWithIcon : styles.contentContainer}>
         <Text style={styles.buttonText} className={`font-psemibold text-lg ${textStyles}`}>
           {title}
         </Text>
@@ -42,8 +43,8 @@ const CustomButton = ({
             className="ml-2"
           />
         )}
+        {icon && !isLoading && <View style={styles.iconSpacing}>{icon}</View>}
       </View>
-      {icon && <View style={styles.iconContainer}>{icon}</View>}
     </TouchableOpacity>
   );
 };
@@ -54,10 +55,7 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     paddingVertical: 10,
     paddingHorizontal: 24,
-    position: 'relative',
-    
     backgroundColor: COLORS.darkMaroon,
-    
   },
   contentContainer: {
     flex: 1,
@@ -65,16 +63,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  iconContainer: {
-    position: 'absolute',
-    right: 20,
-    alignItems: 'center',
+  contentContainerWithIcon: {
+    flex: 1,
+    flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconSpacing: {
+    marginLeft: 8,
   },
   buttonText: {
     color: 'white',
     fontWeight: '600',
-    
   }
 });
 

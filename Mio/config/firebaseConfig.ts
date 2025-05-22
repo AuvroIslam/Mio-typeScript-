@@ -3,6 +3,7 @@ import { initializeApp } from "firebase/app";
 import { initializeAuth, getReactNativePersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { getFunctions } from "firebase/functions"; // Add this import
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 // Using Firebase Storage for message archives and Cloudinary for profile images
@@ -31,5 +32,6 @@ const auth = initializeAuth(app, {
 
 const db = getFirestore(app);
 const storage = getStorage(app);
+const functions = getFunctions(app); // Add this line
 
-export { auth, db, storage }; 
+export { auth, db, storage, functions }; // Export functions

@@ -155,9 +155,20 @@ export default function HomeScreen() {
   const [confirmRemoveModal, setConfirmRemoveModal] = useState(false);
 
   // Fetch user favorites on mount and refresh when favorites change
-  useEffect(() => {
+ useEffect(() => {
+  if (user) {
+    // Only fetch data if user is authenticated
     fetchTrendingShowsFromFirestore();
-  }, [user]);
+  } else {
+    // Clear data when user logs out
+    setTrendingShows([]);
+    setSearchResults([]);
+    setSearchQuery(''); // Clear search query too
+    setIsLoading(false);
+    setRefreshing(false);
+    setIsSearching(false);
+  }
+}, [user]);
   
   // Force re-render when userFavorites changes to update UI
 
@@ -270,108 +281,145 @@ export default function HomeScreen() {
   };
 
   // Fetch trending shows from Firestore first, fallback to API
-  const fetchTrendingShowsFromFirestore = async () => {
-    setIsLoading(true);
-    try {
-      const trendingDocRef = doc(db, 'trending', 'trendingShows');
-      const trendingDoc = await getDoc(trendingDocRef);
-      
-      if (trendingDoc.exists() && trendingDoc.data().shows?.length > 0) {
-        const shows = (trendingDoc.data().shows as ShowItem[])
-                      .sort((a, b) => (a.order || 0) - (b.order || 0));
-        setTrendingShows(shows);
-        setIsLoading(false);
-      } else {
-        // If Firestore is empty or fails, fetch from API as fallback
+const fetchTrendingShowsFromFirestore = async () => {
+  // ADD THIS CHECK - prevents fetching when user is logged out
+  if (!user) {
+    console.log("User not authenticated, skipping data fetch");
+    setIsLoading(false);
+    setRefreshing(false);
+    return;
+  }
+
+  setIsLoading(true);
+  try {
+    const trendingDocRef = doc(db, 'trending', 'trendingShows');
+    const trendingDoc = await getDoc(trendingDocRef);
+    
+    if (trendingDoc.exists() && trendingDoc.data().shows?.length > 0) {
+      const shows = (trendingDoc.data().shows as ShowItem[])
+                    .sort((a, b) => (a.order || 0) - (b.order || 0));
+      setTrendingShows(shows);
+      setIsLoading(false);
+    } else {
+      // UPDATED: Only fallback to API if user is still authenticated
+      if (user) {
         fetchTrendingFromApi();
+      } else {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error('Error fetching trending shows from Firestore:', error);
-      // Fallback to API on Firestore error
+    }
+  } catch (error) {
+    console.error('Error fetching trending shows from Firestore:', error);
+    // UPDATED: Only try API fallback if user is still authenticated
+    if (user) {
       fetchTrendingFromApi();
-    } finally {
+    } else {
+      setIsLoading(false);
       setRefreshing(false);
     }
-  };
+  } finally {
+    setRefreshing(false);
+  }
+};
 
-  // Fetch trending shows directly from TMDB API using the utility
-  const fetchTrendingFromApi = async (timeWindow: 'week' = 'week') => {
-    try {
-        // Fetch trending shows using the utility
-        const data = await tmdbApi.getTrending(timeWindow);
+const fetchTrendingFromApi = async (timeWindow: 'week' = 'week') => {
+  // ADD THIS CHECK - prevents API calls when user is logged out
+  if (!user) {
+    console.log("User not authenticated, skipping API fetch");
+    setIsLoading(false);
+    setRefreshing(false);
+    return;
+  }
 
-        if (!data || !data.results) {
-          throw new Error('Failed to fetch trending shows from API');
-        }
+  try {
+      // Fetch trending shows using the utility
+      const data = await tmdbApi.getTrending(timeWindow);
 
-        // Classify and filter shows
-        const classifiedShows = await Promise.all(
-          data.results.map((show: any) => classifyShow(show))
-        );
-        const filteredShows = classifiedShows.filter((show): show is ShowItem => show !== null);
-    
-        setTrendingShows(filteredShows.slice(0, 30)); // Limit results
-        
-    } catch (error) {
-      console.error('Error fetching trending shows from API:', error);
+      if (!data || !data.results) {
+        throw new Error('Failed to fetch trending shows from API');
+      }
+
+      // Classify and filter shows
+      const classifiedShows = await Promise.all(
+        data.results.map((show: any) => classifyShow(show))
+      );
+      const filteredShows = classifiedShows.filter((show): show is ShowItem => show !== null);
+  
+      setTrendingShows(filteredShows.slice(0, 30)); // Limit results
+      
+  } catch (error) {
+    console.error('Error fetching trending shows from API:', error);
+    // UPDATED: Only show error if user is still authenticated
+    if (user) {
       setFeedbackModal({
         visible: true,
         message: 'Failed to load trending shows. Please try again.',
         type: 'error'
       });
-    } finally {
-      setIsLoading(false); // Ensure loading is false even after fallback
-      setRefreshing(false);
     }
-  };
+  } finally {
+    setIsLoading(false); // Ensure loading is false even after fallback
+    setRefreshing(false);
+  }
+};
 
   // Refactor the handleSearch function to use tmdbApi
-  const handleSearch = useCallback(
-    debounce(async (query: string) => {
-      if (!query.trim()) {
-        setSearchResults([]);
-        setIsSearching(false);
-        return;
+const handleSearch = useCallback(
+  debounce(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    // ADD THIS CHECK - prevents searching when user is logged out
+    if (!user) {
+      console.log("User not authenticated, skipping search");
+      setIsSearching(false);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      // Use the tmdbApi utility for searching
+      const data = await tmdbApi.searchShows(query);
+      
+      if (!data || !data.results) {
+        throw new Error('Failed to search shows');
       }
+      
+      // Classify and deduplicate results (same logic as before)
+      const showMap = new Map<string, ShowItem>();
+      const classifiedShows = await Promise.all(
+        data.results.map((show: any) => classifyShow(show))
+      );
+      classifiedShows
+        .filter((show): show is ShowItem => show !== null)
+        .forEach(show => {
+          const nameKey = (show.title || '').toLowerCase(); // Handle potential undefined title
+          if (!showMap.has(nameKey)) {
+            showMap.set(nameKey, show);
+          }
+        });
+      const uniqueResults = Array.from(showMap.values());
+      setSearchResults(uniqueResults);
 
-      setIsSearching(true);
-      try {
-        // Use the tmdbApi utility for searching
-        const data = await tmdbApi.searchShows(query);
-        
-        if (!data || !data.results) {
-          throw new Error('Failed to search shows');
-        }
-        
-        // Classify and deduplicate results (same logic as before)
-        const showMap = new Map<string, ShowItem>();
-        const classifiedShows = await Promise.all(
-          data.results.map((show: any) => classifyShow(show))
-        );
-        classifiedShows
-          .filter((show): show is ShowItem => show !== null)
-          .forEach(show => {
-            const nameKey = (show.title || '').toLowerCase(); // Handle potential undefined title
-            if (!showMap.has(nameKey)) {
-              showMap.set(nameKey, show);
-            }
-          });
-        const uniqueResults = Array.from(showMap.values());
-        setSearchResults(uniqueResults);
-
-      } catch (error) {
-        console.error('Error searching shows:', error);
+    } catch (error) {
+      console.error('Error searching shows:', error);
+      // UPDATED: Only show error if user is still authenticated
+      if (user) {
         setFeedbackModal({
           visible: true,
           message: 'Search failed. Please try again.',
           type: 'error'
         });
-      } finally {
-        setIsSearching(false);
       }
-    }, 500), // Keep debounce
-    [] // Dependencies
-  );
+    } finally {
+      setIsSearching(false);
+    }
+  }, 500), // Keep debounce
+  [user] // UPDATED: Add user as dependency
+);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

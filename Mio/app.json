@@ -2,7 +2,7 @@
   "expo": {
     "name": "Mio",
     "slug": "Mio",
-    "version": "1.0.1",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/finallogo.png",
     "scheme": "myapp",
@@ -27,7 +27,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.mioapp.social",
-      "versionCode": 3,
+      "versionCode": 5,
       "permissions": [
         "INTERNET",
         "READ_EXTERNAL_STORAGE",
@@ -42,7 +42,11 @@
     },
     "plugins": [
       "expo-router",
-      "expo-splash-screen"
+      "expo-splash-screen",
+      [
+        "@react-native-google-signin/google-signin"
+       
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -55,7 +59,7 @@
         "projectId": "867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"
       }
     },
-    "runtimeVersion": "1.0.1",
+    "runtimeVersion": "1.0.3",
     "owner": "auvro2002",
     "updates": {
       "url": "https://u.expo.dev/867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"

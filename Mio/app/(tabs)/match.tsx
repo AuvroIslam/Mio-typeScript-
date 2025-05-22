@@ -240,8 +240,7 @@ export default function MatchScreen() {
     try {
       // Search for matches - the useEffect will handle showing notifications
       const newMatchesCount = await searchMatches();
-      console.log(`[COOLDOWN] Search completed with ${newMatchesCount} new matches`);
-      console.log(`[COOLDOWN] After search - cooldownEndTime: ${cooldownEndTime ? cooldownEndTime.toISOString() : 'null'}`);
+
       
       // Force check cooldown again after a small delay to ensure context has updated
       setTimeout(() => {
@@ -441,11 +440,11 @@ export default function MatchScreen() {
   
   const renderCooldownTimer = () => {
     if (!cooldownEndTime) {
-      console.log('[COOLDOWN] No cooldown timer to render (cooldownEndTime is null)');
+      
       return null;
     }
     
-    console.log(`[COOLDOWN] Rendering cooldown timer with remaining time: ${remainingTimeString}`);
+    
     return (
       <View style={styles.cooldownContainer}>
         <Ionicons name="time-outline" size={20} color={COLORS.secondary} />

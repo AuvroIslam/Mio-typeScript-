@@ -6,12 +6,15 @@ import {
   signOut,
   sendEmailVerification,
   reload,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  signInWithCredential,
+  GoogleAuthProvider
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../config/firebaseConfig';
+import { auth, db, functions } from '../config/firebaseConfig';
 import { Loader } from '../components';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
 interface User {
   uid: string;
@@ -20,6 +23,7 @@ interface User {
   hasProfile?: boolean;
   isAdmin?: boolean;
   emailVerified?: boolean;
+  photoURL?: string | null;
 }
 
 interface AuthContextType {
@@ -27,6 +31,7 @@ interface AuthContextType {
   isLoading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   logout: () => Promise<boolean>;
   setUserHasProfile: (hasProfile: boolean) => void;
   sendVerification: () => Promise<void>;
@@ -67,7 +72,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         displayName: firebaseUser.displayName,
         hasProfile,
         isAdmin,
-        emailVerified: firebaseUser.emailVerified
+        emailVerified: firebaseUser.emailVerified,
+        photoURL: firebaseUser.photoURL
       });
     } else {
       setUser(null);
@@ -139,19 +145,93 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  const logout = useCallback(async () => {
+  const signInWithGoogle = useCallback(async () => {
     setIsLoading(true);
     try {
-      // Just sign out without any navigation
-      await signOut(auth);
-      return true; // Return success status
-    } catch (error) {
-      console.error("Logout error:", error);
-      return false; // Return failure status
+      // Check if Google Play Services are available
+      await GoogleSignin.hasPlayServices();
+      
+      // Get Google Sign-In response
+      const response = await GoogleSignin.signIn();
+      
+      if (response.type === 'success') {
+        const { idToken } = response.data;
+        
+        // Create Firebase credential with the Google ID token
+        const googleCredential = GoogleAuthProvider.credential(idToken);
+        
+        // Sign in to Firebase with the Google credential
+        const userCredential = await signInWithCredential(auth, googleCredential);
+        const firebaseUser = userCredential.user;
+        
+        // Check if this is a new user or existing user
+        const userRef = doc(db, 'users', firebaseUser.uid);
+        const userDoc = await getDoc(userRef);
+        
+        if (!userDoc.exists()) {
+          // New user - create user document in Firestore
+          await setDoc(userRef, {
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName,
+            photoURL: firebaseUser.photoURL,
+            createdAt: new Date(),
+            profileCompleted: false,
+            signInMethod: 'google'
+          });
+        }
+        
+        // The user state will be updated automatically through onAuthStateChanged
+      } else {
+        throw new Error('Google Sign-In was cancelled or failed');
+      }
+    } catch (error: any) {
+      console.error('Google Sign-In Error:', error);
+      
+      // Handle specific Google Sign-In errors
+      if (error.code === 'auth/account-exists-with-different-credential') {
+        throw new Error('An account already exists with the same email address but different sign-in credentials.');
+      } else if (error.code === 'auth/invalid-credential') {
+        throw new Error('The credential received is malformed or has expired.');
+      } else if (error.code === 'auth/operation-not-allowed') {
+        throw new Error('Google Sign-In is not enabled for this project.');
+      } else if (error.code === 'auth/user-disabled') {
+        throw new Error('The user account has been disabled.');
+      } else {
+        throw error;
+      }
     } finally {
       setIsLoading(false);
     }
   }, []);
+
+// Updated logout function for your AuthContext.tsx
+const logout = useCallback(async () => {
+  try {
+    // Set a flag to prevent any data fetching during logout
+    setIsLoading(true);
+    
+    // Always try to sign out from Google - it's safe to call even if not signed in
+    try {
+      await GoogleSignin.signOut();
+      console.log("Google sign out successful");
+    } catch (googleError) {
+      // This is expected if user wasn't signed in with Google
+      console.log("Google sign out not needed:", googleError);
+    }
+    
+    // Sign out from Firebase
+    await signOut(auth);
+    console.log("Firebase sign out successful");
+    
+    return true;
+  } catch (error) {
+    console.error("Logout error:", error);
+    setIsLoading(false); // Reset loading state on error
+    return false;
+  }
+  // Note: Don't set isLoading to false here on success
+  // The auth state change will handle it through onAuthStateChanged
+}, []);
 
   const setUserHasProfile = useCallback((hasProfile: boolean) => {
     if (user) {
@@ -182,7 +262,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const checkAdminStatus = useCallback(async () => {
     if (auth.currentUser) {
       try {
-        const functions = getFunctions();
         const checkAdmin = httpsCallable(functions, 'checkAdminStatus');
         const result = await checkAdmin();
         
@@ -205,17 +284,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     isLoading,
     signIn,
     signUp,
+    signInWithGoogle,
     logout,
     setUserHasProfile,
     sendVerification,
     refreshUserState,
     resetPassword,
     checkAdminStatus
-  }), [user, isLoading, signIn, signUp, logout, setUserHasProfile, sendVerification, refreshUserState, resetPassword, checkAdminStatus]);
+  }), [user, isLoading, signIn, signUp, signInWithGoogle, logout, setUserHasProfile, sendVerification, refreshUserState, resetPassword, checkAdminStatus]);
 
   return (
     <AuthContext.Provider value={value}>
       {isLoading ? <Loader isLoading={true} /> : children}
     </AuthContext.Provider>
   );
-}; 
+};

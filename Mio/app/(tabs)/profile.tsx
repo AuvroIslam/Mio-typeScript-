@@ -255,29 +255,51 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLogout = async () => {
-    Alert.alert(
-      "Logout",
-      "Are you sure you want to logout?",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Logout", style: "destructive", onPress: async () => {
-          try {
-            await logout();
-            router.replace("/(auth)/sign-in");
-          } catch (error) {
-            console.error("Error logging out:", error);
+// Updated handleLogout function for your profile.tsx
+const handleLogout = async () => {
+  Alert.alert(
+    "Logout",
+    "Are you sure you want to logout?",
+    [
+      { text: "Cancel", style: "cancel" },
+      { text: "Logout", style: "destructive", onPress: async () => {
+        // Show loading immediately
+        setLoading(true);
+        
+        try {
+          const success = await logout();
+          
+          if (success) {
+            // Clear all local state immediately
+            setProfile(null);
+            setFavoriteShows({});
+            setSelectedShow(null);
+            setConfirmModal(false);
+            setFeedbackModal({ visible: false, message: '', type: 'success' });
+            
+            // Don't manually navigate - let AuthNavigationHandler in _layout.tsx handle it
+            console.log("Logout successful - waiting for automatic navigation");
+          } else {
+            setLoading(false);
             setFeedbackModal({
               visible: true,
               message: 'Failed to log out. Please try again.',
               type: 'error'
             });
           }
-        }}
-      ]
-    );
-  };
-
+        } catch (error) {
+          console.error("Error during logout:", error);
+          setLoading(false);
+          setFeedbackModal({
+            visible: true,
+            message: 'Failed to log out. Please try again.',
+            type: 'error'
+          });
+        }
+      }}
+    ]
+  );
+};
   const confirmRemoveShow = (showId: string, showType: 'anime' | 'kdrama') => {
     if (!user || !profile) return;
     
