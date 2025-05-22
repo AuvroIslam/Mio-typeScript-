@@ -23,16 +23,37 @@ A quick look at the Mio App interface:
   <img src="Preview/ss3.jpg" alt="Mio App Screenshot 3" width="250"/>
 </p>
 
-## Features
+## 🚀 Features
 
-- **User Authentication**: Secure login and registration system
-- **Profile Management**: Create and customize user profiles with personal information and favorite shows
-- **Show Discovery**: Browse trending anime and K-drama shows
-- **Smart Matching**: Algorithm pairs users based on common show preferences
-- **Match Levels**: "Match" and "Super Match" classifications based on the number of common interests
-- **Real-time Chat**: Message system for matched users to communicate
-- **Favorite Shows Management**: Add up to 10 favorite shows with weekly cooldown for removals
-- **Block/Unmatch**: Ability to unmatch or block users
+### 🔐 Authentication
+- Secure login and registration using **email/password**
+- **Google Sign-In** integration
+
+### 👤 Profile Management
+- Create and customize personal profiles
+- Upload a **profile picture**
+- Manage personal info and favorite shows
+- **Delete your account** permanently
+
+### 🎯 Show Discovery & Matching
+- Browse **trending Anime** and **K-Drama** shows
+- Add up to **10 favorite shows**
+- **Weekly cooldown** to remove shows
+- **Smart Matching Algorithm** to pair users based on shared interests
+- Match types:
+  - 🔵 **Match** – moderate common interests  
+  - 🟣 **Super Match** – high commonality
+
+### 💬 Real-time Chat
+- Chat system for matched users
+- Messages stored in **Firebase Firestore**
+- **Chats auto-archived** to Firebase Storage after inactivity (via Cloud Functions)
+- Users can **delete individual chats**
+
+### 🔒 Safety Tools
+- **Block or unmatch** any user
+- **Report** inappropriate accounts
+
 
 ## Technologies Used
 
