@@ -43,7 +43,7 @@ const AuthNavigationHandler = ({ children }: { children: React.ReactNode }) => {
     if (!isLoading) {
       if (!user) {
         // User is logged out, redirect to index (splash screen)
-        console.log("User logged out, redirecting to index");
+       
         router.replace("/");
       }
       // If user exists, let the existing logic in index.tsx handle the navigation
@@ -59,7 +59,7 @@ const AuthNavigationHandler = ({ children }: { children: React.ReactNode }) => {
       // Handle notification based on type
       if (data?.type === 'match') {
         const matchId = data.matchId;
-        console.log(`Notification tapped: Match with ${matchId}`);
+        
         
         // Navigate to match tab
         if (matchId) {

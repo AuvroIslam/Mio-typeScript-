@@ -244,7 +244,7 @@ export default function MatchScreen() {
       
       // Force check cooldown again after a small delay to ensure context has updated
       setTimeout(() => {
-        console.log(`[COOLDOWN] Delayed check - cooldownEndTime: ${cooldownEndTime ? cooldownEndTime.toISOString() : 'null'}`);
+        
       }, 500);
     } catch (error) {
       console.error('[COOLDOWN] Error in handleSearch:', error);

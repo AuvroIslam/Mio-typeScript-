@@ -106,7 +106,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           try {
             // Register for push notifications and save token to user profile
             await initializePushNotifications(firebaseUser.uid);
-            console.log('Push notifications initialized for user:', firebaseUser.uid);
+            
           } catch (notifError) {
             console.error('Error initializing push notifications:', notifError);
             // Don't block the auth flow if push registration fails
@@ -226,7 +226,7 @@ const logout = useCallback(async () => {
   try {
     if (currentUserId) {
       try {
-        console.log(`AuthContext: Unregistering push notifications for user ${currentUserId}`);
+       
         await unregisterFromPushNotifications(currentUserId);
       } catch (unregError) {
         console.error(`AuthContext: Error unregistering push token for ${currentUserId}:\\`, unregError);
@@ -238,7 +238,7 @@ const logout = useCallback(async () => {
     // Always try to sign out from Google - it's safe to call even if not signed in
     try {
       await GoogleSignin.signOut();
-      console.log("AuthContext: Google sign out successful");
+      
     } catch (googleError) {
       // This is expected if user wasn't signed in with Google or if already signed out
       console.log("AuthContext: Google sign out not needed or failed (this is often normal):", googleError);
@@ -246,7 +246,7 @@ const logout = useCallback(async () => {
     
     // Sign out from Firebase
     await signOut(auth);
-    console.log("AuthContext: Firebase sign out successful");
+
     
     // User state will be set to null by onAuthStateChanged, which will also set isLoading to false.
     return true;

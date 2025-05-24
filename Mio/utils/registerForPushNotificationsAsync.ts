@@ -15,13 +15,13 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
   let token;
   
   if (!Device.isDevice) {
-    console.log('Must use physical device for Push Notifications');
+
     return null;
   }
   
   // Ensure Firebase is initialized - this helps with Android native Firebase init
   if (getApps().length === 0) {
-    console.log('Firebase not initialized, initializing now...');
+   
     initializeApp(firebaseConfig);
   }
 
@@ -37,7 +37,7 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
   
   // If we still don't have permission, exit
   if (finalStatus !== 'granted') {
-    console.log('Failed to get push token for push notification!');
+  
     return null;
   }
   
@@ -75,7 +75,7 @@ export async function registerForPushNotificationsAsync(userId: string): Promise
     await updateDoc(userRef, {
       'profile.pushToken': token
     });
-    console.log('Push token saved to Firestore');
+  
   } catch (error) {
     console.error('Error saving push token to Firestore:', error);
   }
@@ -93,7 +93,7 @@ export async function unregisterFromPushNotifications(userId: string): Promise<v
     await updateDoc(userRef, {
       'profile.pushToken': null
     });
-    console.log('Push token removed from Firestore');
+    
   } catch (error) {
     console.error('Error removing push token from Firestore:', error);
   }

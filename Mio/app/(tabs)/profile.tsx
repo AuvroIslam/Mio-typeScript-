@@ -278,7 +278,7 @@ const handleLogout = async () => {
             setFeedbackModal({ visible: false, message: '', type: 'success' });
             
             // Don't manually navigate - let AuthNavigationHandler in _layout.tsx handle it
-            console.log("Logout successful - waiting for automatic navigation");
+            
           } else {
             setLoading(false);
             setFeedbackModal({

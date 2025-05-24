@@ -71,7 +71,7 @@ export default function App() {
   }, [isLoading, user, router, comingFromAuth]);
 
   const handleEmailSignIn = () => {
-    console.log('Email sign-in button pressed');
+  
     router.push('/sign-up');
   };
 

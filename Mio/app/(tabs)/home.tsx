@@ -284,7 +284,7 @@ export default function HomeScreen() {
 const fetchTrendingShowsFromFirestore = async () => {
   // ADD THIS CHECK - prevents fetching when user is logged out
   if (!user) {
-    console.log("User not authenticated, skipping data fetch");
+    
     setIsLoading(false);
     setRefreshing(false);
     return;
@@ -325,7 +325,7 @@ const fetchTrendingShowsFromFirestore = async () => {
 const fetchTrendingFromApi = async (timeWindow: 'week' = 'week') => {
   // ADD THIS CHECK - prevents API calls when user is logged out
   if (!user) {
-    console.log("User not authenticated, skipping API fetch");
+
     setIsLoading(false);
     setRefreshing(false);
     return;
@@ -374,7 +374,7 @@ const handleSearch = useCallback(
 
     // ADD THIS CHECK - prevents searching when user is logged out
     if (!user) {
-      console.log("User not authenticated, skipping search");
+   
       setIsSearching(false);
       return;
     }
