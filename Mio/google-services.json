@@ -14,7 +14,15 @@
       },
       "oauth_client": [
         {
-          "client_id": "923851288668-4358gr2rlgdmt1k3takost527bls2ddv.apps.googleusercontent.com",
+          "client_id": "923851288668-grrn9o54jfdgh6gup9jconkvfh6nd6l0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mioapp.social",
+            "certificate_hash": "49c8c04a5a19b271eef7acc7e38d99d199c4c099"
+          }
+        },
+        {
+          "client_id": "923851288668-hnlg423msovtk995jdl09d7ukbccr6ls.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.mioapp.social",
@@ -22,11 +30,11 @@
           }
         },
         {
-          "client_id": "923851288668-grrn9o54jfdgh6gup9jconkvfh6nd6l0.apps.googleusercontent.com",
+          "client_id": "923851288668-q7309dmqt713krtvg7m91bid2iejdv6g.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.mioapp.social",
-            "certificate_hash": "49c8c04a5a19b271eef7acc7e38d99d199c4c099"
+            "certificate_hash": "e44520cd351118289f4f8bf83d59d12f55ca143c"
           }
         },
         {

@@ -11,7 +11,7 @@ import { Platform } from 'react-native';
 // Your web app's Firebase configuration
 // For production, these values should be set in environment variables
 // or using a secure key management solution
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || "",
   authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
   projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || "",
@@ -34,4 +34,4 @@ const db = getFirestore(app);
 const storage = getStorage(app);
 const functions = getFunctions(app); // Add this line
 
-export { auth, db, storage, functions }; // Export functions
+export { auth, db, storage, functions, app }; // Export app and functions

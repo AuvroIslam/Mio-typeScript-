@@ -1,5 +1,5 @@
 import { View, ActivityIndicator, Dimensions, Platform } from "react-native";
-
+import { COLORS } from "../constants/Colors";
 interface LoaderProps {
   isLoading: boolean;
 }
@@ -19,7 +19,7 @@ const Loader = ({ isLoading }: LoaderProps) => {
     >
       <ActivityIndicator
         animating={isLoading}
-        color="#fff"
+        color={COLORS.maroon}
         size={osName === "ios" ? "large" : 50}
       />
     </View>

@@ -7,6 +7,7 @@ import {FieldValue} from "firebase-admin/firestore"; // Import FieldValue
 import * as crypto from "crypto";
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {onSchedule} from "firebase-functions/v2/scheduler";
+import { sendMatchNotification } from "./notificationService";
 
 
 // Initialize Firebase Admin
@@ -469,6 +470,40 @@ export const deleteConversationData = onCall(async (request) => {
  * Cloud function to search for user matches
  * This moves the matching algorithm to the server for better security and performance
  */
+/**
+ * Function to process matches and send notifications to matched users
+ * @param userId - The ID of the user who initiated the search
+ * @param userName - The display name of the user who initiated the search
+ * @param newMatches - Array of new matches to process
+ */
+async function processNewMatchesAndNotify(
+  userId: string,
+  userName: string,
+  newMatches: MatchData[]
+): Promise<void> {
+  if (!newMatches || newMatches.length === 0) {
+    return;
+  }
+  
+  functions.logger.info(`Processing ${newMatches.length} new matches for user ${userId}`);
+  
+  for (const match of newMatches) {
+    try {
+      // Send notification to the matched user
+      await sendMatchNotification(
+        match.userId,
+        userId,
+        userName,
+        match.matchLevel
+      );
+      
+      functions.logger.info(`Notification sent to user ${match.userId} for match with ${userId}`);
+    } catch (error) {
+      functions.logger.error(`Error sending notification to user ${match.userId}:`, error);
+    }
+  }
+}
+
 export const searchUserMatches = onCall(async (request) => {
   // Verify authentication
   if (!request.auth) {
@@ -694,6 +729,22 @@ export const searchUserMatches = onCall(async (request) => {
         });
       }
       await writeBatch.commit();
+    }
+
+    // Process new matches and send notifications if any were found
+    if (newMatchesData.length > 0) {
+      try {
+        // Process new matches and send notifications
+        await processNewMatchesAndNotify(
+          currentUserId,
+          userProfile.displayName || "A user",
+          newMatchesData
+        );
+        functions.logger.info(`Processed notifications for ${newMatchesData.length} new matches`);
+      } catch (notifyError) {
+        // Log error but don't fail the entire function
+        functions.logger.error("Error processing match notifications:", notifyError);
+      }
     }
 
     // IMPORTANT: Always include cooldownEnd in the response object

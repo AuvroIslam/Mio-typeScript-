@@ -15,6 +15,8 @@ import { auth, db, functions } from '../config/firebaseConfig';
 import { Loader } from '../components';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { initializePushNotifications } from '../utils/notificationHandler';
+import { unregisterFromPushNotifications } from '../utils/registerForPushNotificationsAsync'; // Added import
 
 interface User {
   uid: string;
@@ -98,6 +100,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
         await updateUserState(firebaseUser);
+        
+        // Register for push notifications if user is authenticated
+        if (firebaseUser) {
+          try {
+            // Register for push notifications and save token to user profile
+            await initializePushNotifications(firebaseUser.uid);
+            console.log('Push notifications initialized for user:', firebaseUser.uid);
+          } catch (notifError) {
+            console.error('Error initializing push notifications:', notifError);
+            // Don't block the auth flow if push registration fails
+          }
+        }
       } finally {
         setIsLoading(false);
       }
@@ -206,32 +220,48 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
 // Updated logout function for your AuthContext.tsx
 const logout = useCallback(async () => {
+  const currentUserId = auth.currentUser?.uid; // Get user ID before sign-out operations
+
+  setIsLoading(true); // Set loading true at the beginning of logout
   try {
-    // Set a flag to prevent any data fetching during logout
-    setIsLoading(true);
-    
+    if (currentUserId) {
+      try {
+        console.log(`AuthContext: Unregistering push notifications for user ${currentUserId}`);
+        await unregisterFromPushNotifications(currentUserId);
+      } catch (unregError) {
+        console.error(`AuthContext: Error unregistering push token for ${currentUserId}:\\`, unregError);
+        // Decide if this error should prevent logout or just be logged.
+        // For now, we'll log it and proceed with logout.
+      }
+    }
+
     // Always try to sign out from Google - it's safe to call even if not signed in
     try {
       await GoogleSignin.signOut();
-      console.log("Google sign out successful");
+      console.log("AuthContext: Google sign out successful");
     } catch (googleError) {
-      // This is expected if user wasn't signed in with Google
-      console.log("Google sign out not needed:", googleError);
+      // This is expected if user wasn't signed in with Google or if already signed out
+      console.log("AuthContext: Google sign out not needed or failed (this is often normal):", googleError);
     }
     
     // Sign out from Firebase
     await signOut(auth);
-    console.log("Firebase sign out successful");
+    console.log("AuthContext: Firebase sign out successful");
     
+    // User state will be set to null by onAuthStateChanged, which will also set isLoading to false.
     return true;
   } catch (error) {
-    console.error("Logout error:", error);
-    setIsLoading(false); // Reset loading state on error
+    console.error("AuthContext: Logout error:", error);
+    // Ensure loading is false if logout fails catastrophically before onAuthStateChanged can clear it
+    // However, onAuthStateChanged should ideally always fire after signOut attempt.
+    // If signOut itself fails, onAuthStateChanged might not fire with null.
+    // Setting isLoading(false) here ensures UI is unblocked if signOut itself throws.
+    setIsLoading(false); 
     return false;
   }
-  // Note: Don't set isLoading to false here on success
-  // The auth state change will handle it through onAuthStateChanged
-}, []);
+  // isLoading will be set to false by the onAuthStateChanged listener when user becomes null
+  // or if an error occurs and is caught above.
+}, []); // No dependencies needed here as auth.currentUser is accessed directly
 
   const setUserHasProfile = useCallback((hasProfile: boolean) => {
     if (user) {

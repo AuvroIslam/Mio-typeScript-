@@ -33,6 +33,7 @@ const firestore_1 = require("firebase-admin/firestore"); // Import FieldValue
 const crypto = __importStar(require("crypto"));
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
+const notificationService_1 = require("./notificationService");
 // Initialize Firebase Admin
 admin.initializeApp();
 // Configuration constants (same as in client)
@@ -359,6 +360,28 @@ exports.deleteConversationData = (0, https_1.onCall)(async (request) => {
  * Cloud function to search for user matches
  * This moves the matching algorithm to the server for better security and performance
  */
+/**
+ * Function to process matches and send notifications to matched users
+ * @param userId - The ID of the user who initiated the search
+ * @param userName - The display name of the user who initiated the search
+ * @param newMatches - Array of new matches to process
+ */
+async function processNewMatchesAndNotify(userId, userName, newMatches) {
+    if (!newMatches || newMatches.length === 0) {
+        return;
+    }
+    functions.logger.info(`Processing ${newMatches.length} new matches for user ${userId}`);
+    for (const match of newMatches) {
+        try {
+            // Send notification to the matched user
+            await (0, notificationService_1.sendMatchNotification)(match.userId, userId, userName, match.matchLevel);
+            functions.logger.info(`Notification sent to user ${match.userId} for match with ${userId}`);
+        }
+        catch (error) {
+            functions.logger.error(`Error sending notification to user ${match.userId}:`, error);
+        }
+    }
+}
 exports.searchUserMatches = (0, https_1.onCall)(async (request) => {
     // Verify authentication
     if (!request.auth) {
@@ -544,6 +567,18 @@ exports.searchUserMatches = (0, https_1.onCall)(async (request) => {
             }
             await writeBatch.commit();
         }
+        // Process new matches and send notifications if any were found
+        if (newMatchesData.length > 0) {
+            try {
+                // Process new matches and send notifications
+                await processNewMatchesAndNotify(currentUserId, userProfile.displayName || "A user", newMatchesData);
+                functions.logger.info(`Processed notifications for ${newMatchesData.length} new matches`);
+            }
+            catch (notifyError) {
+                // Log error but don't fail the entire function
+                functions.logger.error("Error processing match notifications:", notifyError);
+            }
+        }
         // IMPORTANT: Always include cooldownEnd in the response object
         // This ensures the client gets the cooldown info regardless of match count
         const responseObject = {
@@ -668,15 +703,24 @@ exports.getTMDBData = (0, https_1.onCall)(async (request) => {
         if (!endpoint) {
             throw new https_1.HttpsError("invalid-argument", "The 'endpoint' parameter is required.");
         }
-        // Get TMDB API key directly using the standard name
-        const apiKey = process.env.TMDB_API_KEY;
-        functions.logger.info("Reading TMDB_API_KEY from process.env"); // Simple log
+        // Get TMDB API key from environment variable - try both formats
+        // Try the project-prefixed version first
+        let apiKey = process.env["mio-deployment.TMDB_API_KEY"];
+        // If not found, try the regular version as fallback
         if (!apiKey) {
-            functions.logger.error("TMDB_API_KEY was missing or empty in process.env!"); // Log error
-            console.error("TMDB API key is missing in environment variables."); // Keep console for potential client error message
+            apiKey = process.env.TMDB_API_KEY;
+        }
+        functions.logger.info("Attempting to read TMDB_API_KEY from process.env");
+        functions.logger.info(`Prefixed value found: ${process.env["mio-deployment.TMDB_API_KEY"] ? 'Exists' : 'Missing'}`);
+        functions.logger.info(`Regular value found: ${process.env.TMDB_API_KEY ? 'Exists' : 'Missing'}`);
+        functions.logger.info(`Final value used: ${apiKey ? 'Exists' : 'Missing or Empty'}`);
+        if (apiKey) {
+            functions.logger.info(`API Key starts with: ${apiKey.substring(0, 4)}`);
+        }
+        if (!apiKey) {
+            console.error("TMDB API key is missing in environment variables.");
             throw new https_1.HttpsError("failed-precondition", "TMDB API key is not configured.");
         }
-        functions.logger.info("TMDB_API_KEY found."); // Confirmation log
         // Construct the URL with query parameters
         const safeEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
         let url = `https://api.themoviedb.org/3${safeEndpoint}?api_key=${apiKey}`;
