@@ -372,11 +372,10 @@ const handleLogout = async () => {
         // Cooldown callback
         (cooldownTime) => {
           console.warn(`Profile: Cooldown active (${cooldownTime}s) when trying to remove ${show.title}`);
-          const minutes = Math.floor(cooldownTime / 60);
-          const seconds = cooldownTime % 60;
+          
           setFeedbackModal({
             visible: true,
-            message: `Cooldown active. Please wait ${minutes}:${seconds < 10 ? '0' + seconds : seconds} before removing another show.`,
+            message: `Cooldown active. Please wait ${formattedCooldownString} before removing another show.`,
             type: 'warning'
           });
         }

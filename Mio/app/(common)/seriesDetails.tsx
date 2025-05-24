@@ -109,6 +109,7 @@ export default function SeriesDetailsScreen() {
     isAddingToFavorites,
     isRemovingFavorite,
     removalCount,
+    formattedCooldownString,
     refreshUserFavorites,
     getTotalFavorites
   } = useFavorites();
@@ -317,11 +318,10 @@ export default function SeriesDetailsScreen() {
       (cooldownTime) => {
         console.warn(`Series Details: Cooldown active (${cooldownTime}s) when trying to remove ${selectedShowForFavorite.title}`);
         setConfirmModal(false);
-        const minutes = Math.floor(cooldownTime / 60);
-        const seconds = cooldownTime % 60;
+        
         setFeedbackModal({
           visible: true,
-          message: `Cooldown active. Please wait ${minutes}:${seconds < 10 ? '0' + seconds : seconds} before removing another show.`,
+          message: `Cooldown active. Please wait ${formattedCooldownString} before removing another show.`,
           type: 'warning'
         });
       }
