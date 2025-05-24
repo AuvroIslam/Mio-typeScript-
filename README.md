@@ -54,6 +54,12 @@ A quick look at the Mio App interface:
 - **Block or unmatch** any user
 - **Report** inappropriate accounts
 
+### 🚨 Notifications
+- **Real-time notifications** when a match is found
+- Built using **Firebase Cloud Messaging (FCM)**
+- Works across devices to ensure instant updates
+
+
 
 ## Technologies Used
 
