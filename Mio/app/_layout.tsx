@@ -1,3 +1,4 @@
+import React from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Slot, useRouter, useSegments } from 'expo-router';
@@ -17,6 +18,7 @@ import { toastConfig } from '../components';
 import { useColorScheme } from '../hooks/useColorScheme';
 import { initializeNotifications, setNotificationResponseHandler, setForegroundNotificationHandler } from '../utils/notificationHandler';
 import * as Notifications from 'expo-notifications';
+
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
