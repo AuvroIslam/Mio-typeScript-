@@ -27,11 +27,11 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.mioapp.social",
-      "versionCode": 7,
-      "permissions": [
+      "versionCode": 7,     
+       "permissions": [
         "INTERNET",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "POST_NOTIFICATIONS",
+        "VIBRATE"
       ],
       "googleServicesFile": "./google-services.json"
     },
