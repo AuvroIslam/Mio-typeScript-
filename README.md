@@ -22,6 +22,11 @@ A quick look at the Mio App interface:
   &nbsp;&nbsp;&nbsp;
   <img src="Preview/ss3.jpg" alt="Mio App Screenshot 3" width="250"/>
 </p>
+<p align="center">
+    <img src="Preview/ss5.png" alt="Mio App Screenshot 4" width="250"/>
+  &nbsp;&nbsp;&nbsp;
+  <img src="Preview/ss4.png" alt="Mio App Screenshot 5" width="250"/>
+</p>
 
 ## 🚀 Features
 
