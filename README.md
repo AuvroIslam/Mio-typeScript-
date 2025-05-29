@@ -46,6 +46,7 @@ A quick look at the Mio App interface:
 - Match types:
   - 🔵 **Match** – moderate common interests  
   - 🟣 **Super Match** – high commonality
+- **Cooldown Mechanism**: After a certain number of searches or show removals, users must wait for a cooldown period before continuing
 
 ### 💬 Real-time Chat
 - Chat system for matched users
@@ -61,6 +62,9 @@ A quick look at the Mio App interface:
 - **Real-time notifications** when a match is found
 - Built using **Firebase Cloud Messaging (FCM)**
 - Works across devices to ensure instant updates
+
+### ⚙️ App Management
+- **Force Update Mechanism**: When a critical app update is released, users are required to download the latest version before continuing to use the app
 
 
 
