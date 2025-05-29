@@ -16,12 +16,12 @@ A mobile application built with React Native and Expo that matches users based o
 A quick look at the Mio App interface:
 
 <p align="center">
-  <img src="Preview/ss1.png" width="100" />
-  <img src="Preview/ss2.png" width="100" />
-  <img src="Preview/ss3.png" width="100" />
-  <img src="Preview/ss6.png" width="100" />
-  <img src="Preview/ss5.png" width="100" />
-  <img src="Preview/ss4.png" width="100" />
+  <img src="Preview/ss1.png" width="120" />
+  <img src="Preview/ss2.png" width="120" />
+  <img src="Preview/ss3.png" width="120" />
+  <img src="Preview/ss6.png" width="120" />
+  <img src="Preview/ss5.png" width="120" />
+  <img src="Preview/ss4.png" width="120" />
 </p>
 
 
