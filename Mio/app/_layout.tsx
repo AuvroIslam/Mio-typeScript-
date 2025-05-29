@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Slot, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
+import { Platform, Modal, Text, TouchableOpacity, View, StyleSheet, Linking } from 'react-native';
 import 'react-native-reanimated';
 import '../global.css';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -18,7 +18,10 @@ import { toastConfig } from '../components';
 import { useColorScheme } from '../hooks/useColorScheme';
 import { initializeNotifications, setNotificationResponseHandler, setForegroundNotificationHandler } from '../utils/notificationHandler';
 import * as Notifications from 'expo-notifications';
-
+import * as Application from 'expo-application';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../config/firebaseConfig';
+import { COLORS } from '../constants/Colors';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -102,6 +105,9 @@ const AuthNavigationHandler = ({ children }: { children: React.ReactNode }) => {
 };
 
 const RootLayout = () => {
+  const [isUpdateModalVisible, setIsUpdateModalVisible] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState('');
+  const [updateUrl, setUpdateUrl] = useState('');
   const colorScheme = useColorScheme();
   const [fontsLoaded, error] = useFonts({
     "Poppins-Black": require("../assets/fonts/Poppins-Black.ttf"),
@@ -124,6 +130,49 @@ const RootLayout = () => {
     }
   }, [fontsLoaded, error]);
 
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    const currentAppVersion = Application.nativeBuildVersion;
+    if (!currentAppVersion) {
+      console.warn('Could not determine app version.');
+      return;
+    }
+    const currentAppVersionCode = parseInt(currentAppVersion, 10);
+
+    const unsubscribe = onSnapshot(doc(db, 'appConfig', 'versions'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const minVersionCode = data?.android_minimum_version_code;
+        const message = data?.android_update_message;
+        const url = data?.android_update_url;
+
+        if (typeof minVersionCode === 'number' && message && url) {
+          if (currentAppVersionCode < minVersionCode) {
+            setUpdateMessage(message);
+            setUpdateUrl(url);
+            setIsUpdateModalVisible(true);
+          } else {
+            setIsUpdateModalVisible(false); // Ensure modal is hidden if version is okay
+          }
+        } else {
+          console.warn('Firestore appConfig/versions document is missing required fields: android_minimum_version_code, android_update_message, android_update_url.');
+          setIsUpdateModalVisible(false);
+        }
+      } else {
+        console.warn('Firestore appConfig/versions document does not exist.');
+        setIsUpdateModalVisible(false);
+      }
+    }, (error) => {
+      console.error('Error fetching app config for force update:', error);
+      setIsUpdateModalVisible(false);
+    });
+
+    return () => unsubscribe(); // Cleanup listener on component unmount
+  }, []);
+
   if (!fontsLoaded && !error) {
     return null;
   }
@@ -139,6 +188,37 @@ const RootLayout = () => {
                   <Slot />
                   <StatusBar backgroundColor="#FFFFFF" style="dark" />
                   <Toast config={toastConfig} />
+                  {isUpdateModalVisible && (
+                    <Modal
+                      transparent={true}
+                      animationType="slide"
+                      visible={isUpdateModalVisible}
+                      onRequestClose={() => { /* Non-dismissible modal */ }}
+                    >
+                      <View style={styles.modalContainer}>
+                        <View style={styles.modalContent}>
+                          <Text style={styles.modalTitle}>Update Required</Text>
+                          <Text style={styles.modalMessage}>{updateMessage}</Text>
+                          <TouchableOpacity
+                            style={styles.updateButton}
+                            onPress={async () => {
+                              if (updateUrl) {
+                                const supported = await Linking.canOpenURL(updateUrl);
+                                if (supported) {
+                                  await Linking.openURL(updateUrl);
+                                } else {
+                                  console.error(`Don't know how to open this URL: ${updateUrl}`);
+                                  // Optionally, show an alert to the user
+                                }
+                              }
+                            }}
+                          >
+                            <Text style={styles.updateButtonText}>Update Now</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </Modal>
+                  )}
                 </ThemeProvider>
               </MatchContextProvider>
             </FavoritesProvider>
@@ -148,5 +228,42 @@ const RootLayout = () => {
     </GestureHandlerRootView>
   );
 };
+
+const styles = StyleSheet.create({
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  modalMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  updateButton: {
+    backgroundColor: COLORS.darkMaroon,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+  },
+  updateButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+});
 
 export default RootLayout;

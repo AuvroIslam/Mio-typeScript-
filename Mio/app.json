@@ -2,7 +2,7 @@
   "expo": {
     "name": "Mio",
     "slug": "Mio",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/images/finallogo.png",
     "scheme": "myapp",
@@ -27,7 +27,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.mioapp.social",
-      "versionCode": 7,     
+      "versionCode": 8,     
        "permissions": [
         "INTERNET",
         "POST_NOTIFICATIONS",
@@ -59,7 +59,7 @@
         "projectId": "867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"
       }
     },
-    "runtimeVersion": "1.0.5",
+    "runtimeVersion": "1.0.6",
     "owner": "auvro2002",
     "updates": {
       "url": "https://u.expo.dev/867d3cc1-2a00-4cd5-8348-6d2dfacdc9c6"
