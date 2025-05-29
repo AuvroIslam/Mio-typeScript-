@@ -656,7 +656,7 @@ const handleSearch = useCallback(
             <Text style={styles.confirmMessage}>
               {formattedCooldownString && formattedCooldownString !== 'Ready' 
                 ? `Cooldown active. You need to wait ${formattedCooldownString} before removing more.`
-                : `You have ${MAX_WEEKLY_REMOVALS - removalCount} removals left.${removalCount === MAX_WEEKLY_REMOVALS - 1 ? ' This will be your last removal before the cooldown starts.' : ''}`
+                : `You have ${MAX_WEEKLY_REMOVALS - removalCount} removals left.${removalCount === MAX_WEEKLY_REMOVALS - 1 ? ' This will be your last removal before the 3 days cooldown starts.' : ''}`
               }
             </Text>
             

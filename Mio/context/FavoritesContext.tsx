@@ -8,7 +8,7 @@ import * as Haptics from 'expo-haptics';
 // Constants
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5;
-const COOLDOWN_MINUTES = 60*24*7;
+const COOLDOWN_MINUTES = 60*24*3;
 
 type FavoriteType = 'anime' | 'kdrama';
 

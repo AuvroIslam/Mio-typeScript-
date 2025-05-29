@@ -39,7 +39,7 @@ const { width, height } = Dimensions.get('window');
 
 const MAX_FAVORITES = 10;
 const MAX_WEEKLY_REMOVALS = 5;
-const COOLDOWN_MINUTES = 5;
+const COOLDOWN_MINUTES = 60*24*3;
 
 type FavoriteType = 'anime' | 'kdrama';
 
@@ -783,11 +783,11 @@ const handleLogout = async () => {
             <Text style={styles.confirmTitle}>Remove Favorite?</Text>
             <Text style={styles.confirmMessage}>
               {removalCount === MAX_WEEKLY_REMOVALS - 1 
-                ? `This will be your last removal before the ${COOLDOWN_MINUTES}-minute cooldown starts.`
+                ? `This will be your last removal before the 3 days cooldown starts.`
                 : `You have used ${removalCount} out of ${MAX_WEEKLY_REMOVALS} removals.`
               }
               {cooldownTimer === null && removalCount === MAX_WEEKLY_REMOVALS - 1 && 
-                ` After ${MAX_WEEKLY_REMOVALS} removals, you'll need to wait ${COOLDOWN_MINUTES} minutes before removing more.`
+                ` After ${MAX_WEEKLY_REMOVALS} removals, you'll need to wait 3 days before removing more.`
               }
             </Text>
             
